@@ -1,0 +1,5 @@
+{
+  "name": "uselim",
+  "version": "1.0.0",
+  "description": "Uselim's phone relay: each chat takes messages from the phone as typed prompts and hands Uselim its replies, questions and permission asks."
+}

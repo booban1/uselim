@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Uselim">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="icon" href="/icon.png">
+<link rel="stylesheet" href="/app.css">
+<title>Uselim</title>
+</head>
+<body>
+<div id="bar" class="bar"></div>
+
+<main id="list" class="view">
+  <header class="large">
+    <img class="app-icon" src="/icon.png" alt="">
+    <h1>Uselim</h1>
+    <!-- the pen opens a new chat on the Mac; "New chat" is its accessible label -->
+    <button id="newChat" class="compose" type="button" aria-label="New chat"><span class="mask compose-mask"></span></button>
+    <button id="openNotices" class="bell" type="button" aria-label="Notifications"><span class="mask bell-mask"></span><span id="badge" class="badge" hidden></span></button>
+  </header>
+  <section class="group">
+    <h2>Limits</h2>
+    <div id="limits" class="card"></div>
+  </section>
+  <section class="group">
+    <h2>Chats</h2>
+    <div id="chats" class="card"></div>
+  </section>
+  <section id="recentGroup" class="group" hidden>
+    <h2>Recent</h2>
+    <div id="recent" class="card"></div>
+    <p class="foot">A message to one opens it in VS Code on the Mac</p>
+  </section>
+</main>
+
+<!-- pairing: the code from Pair a phone in Uselim's menu on the Mac, entered once -->
+<main id="pair" class="view" hidden>
+  <header class="large">
+    <img class="app-icon" src="/icon.png" alt="">
+    <h1>Uselim</h1>
+  </header>
+  <form id="pairForm" class="group" autocomplete="off">
+    <h2>Pair this phone</h2>
+    <div class="card pair-field"><input id="pairCode" class="rename-input pair-input" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" enterkeyhint="go" placeholder="123 456"><button id="pairScan" class="scan" type="button" aria-label="Scan the code"><span class="mask scan-mask"></span></button></div>
+    <p class="foot">The code sits in Pair a phone… in Uselim's menu on the Mac.</p>
+    <p id="pairNote" class="foot"></p>
+    <div class="actions sheet-actions"><button id="pairLater" type="button" hidden>Later</button><button class="strong" type="submit">Pair</button></div>
+  </form>
+</main>
+
+<!-- the camera, reading the Pair window's QR code inside the app; the scan icon in the pairing field opens it -->
+<div id="scanner" class="scanner" hidden>
+  <video id="scanVideo" playsinline muted></video>
+  <div class="scan-frame"><i></i><i></i><i></i><i></i></div>
+  <p class="scan-hint">Point the camera at the code in Pair a phone… on the Mac.</p>
+  <button id="scanCancel" class="scan-cancel" type="button">Cancel</button>
+</div>
+
+<main id="notices" class="view" hidden>
+  <header class="nav">
+    <button id="noticesBack" class="back" type="button"><span class="mask back-mask"></span>Uselim</button>
+    <div class="heading">
+      <div class="name">Notifications</div>
+    </div>
+    <button id="openSettings" class="gear" type="button" aria-label="Notification Center"><span class="mask gear-mask"></span></button>
+  </header>
+  <div id="noticeDays"></div>
+</main>
+
+<main id="settings" class="view" hidden>
+  <header class="nav">
+    <button id="settingsBack" class="back" type="button"><span class="mask back-mask"></span>Notifications</button>
+    <div class="heading">
+      <div class="name">Notification Center</div>
+    </div>
+  </header>
+  <section class="group">
+    <div class="card">
+      <label class="row">
+        <div class="grow">
+          <div class="title">Notifications</div>
+          <div id="mainState" class="sub"></div>
+        </div>
+        <input id="mainSwitch" class="switch" type="checkbox" role="switch">
+      </label>
+    </div>
+  </section>
+  <section id="kindsGroup" class="group" hidden>
+    <h2>Send to Notification Center</h2>
+    <div id="kinds" class="card"></div>
+    <p class="foot">Every notice shows in the app's list. These choose the ones that reach your lock screen.</p>
+  </section>
+  <section id="testGroup" class="group" hidden>
+    <div class="card">
+      <div class="row">
+        <div class="grow">
+          <div class="title">Send a test</div>
+          <div id="testState" class="sub">One notice to this phone now</div>
+        </div>
+        <button id="pushTest" class="pill" type="button">Test</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<main id="chat" class="view" hidden>
+  <header class="nav">
+    <button id="back" class="back" type="button"><span class="mask back-mask"></span>Chats</button>
+    <div class="heading">
+      <div id="chatProject" class="name"></div>
+      <div id="chatBegan" class="began"></div>
+    </div>
+  </header>
+  <section id="messages" class="messages"></section>
+  <section id="ask" class="ask" hidden></section>
+  <form id="composer" class="composer">
+    <!-- the chat's model and effort, as the panel's model pill shows them; a tap opens the switch -->
+    <button id="modelPill" class="model-pill" type="button" hidden><span id="modelText"></span><span class="mask updown-mask"></span></button>
+    <div id="tray" class="tray" hidden></div>
+    <div class="entry">
+      <label class="attach" for="files" aria-label="Attach"><span class="mask attach-mask"></span></label>
+      <input id="files" class="file-input" type="file" multiple>
+      <textarea id="text" rows="1" placeholder="Message"></textarea>
+      <button id="send" class="send" type="submit" aria-label="Send"><span class="mask send-mask"></span></button>
+    </div>
+  </form>
+</main>
+
+<div id="viewer" class="viewer" hidden>
+  <img id="viewerPicture" alt="" draggable="false">
+</div>
+
+<!-- a chat's new name, from a row's Rename -->
+<div id="renamer" class="sheet-backdrop" hidden>
+  <form id="renameForm" class="sheet" autocomplete="off">
+    <section class="group">
+      <h2>Name</h2>
+      <div class="card"><input id="renameText" class="rename-input" type="text" maxlength="100" enterkeyhint="done"></div>
+    </section>
+    <div class="actions sheet-actions">
+      <button id="renameCancel" type="button">Cancel</button>
+      <button class="strong" type="submit">Save</button>
+    </div>
+  </form>
+</div>
+
+<!-- the switch for the open chat's model and effort: a sheet from the bottom; "Done", "Model" and "Effort" are
+     stand-in labels, his to swap -->
+<div id="switcher" class="sheet-backdrop" hidden>
+  <div class="sheet" role="dialog" aria-label="Model and effort">
+    <div class="sheet-head"><button id="switcherDone" class="done" type="button">Done</button></div>
+    <section class="group">
+      <h2>Model</h2>
+      <div id="models" class="card"></div>
+    </section>
+    <section class="group">
+      <h2>Effort</h2>
+      <!-- effort as a slider snapping to the panel's levels -->
+      <div class="card slider-card">
+        <div class="slider">
+          <input id="effort" class="level" type="range" min="0" max="4" step="1" aria-label="Effort">
+          <div id="effortTicks" class="ticks"></div>
+        </div>
+        <div id="effortNames" class="stops"></div>
+      </div>
+      <p id="switchNote" class="foot"></p>
+    </section>
+  </div>
+</div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

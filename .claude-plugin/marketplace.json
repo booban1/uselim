@@ -1,0 +1,11 @@
+{
+  "name": "uselim",
+  "owner": { "name": "Simon Booban" },
+  "plugins": [
+    {
+      "name": "uselim",
+      "source": "./mod",
+      "description": "Uselim's phone relay: each chat takes messages from the phone as typed prompts and hands Uselim its replies, questions and permission asks."
+    }
+  ]
+}
