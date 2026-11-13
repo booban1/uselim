@@ -26,10 +26,12 @@ func runPermission() {
     let cwd = json["cwd"] as? String ?? ""
     let id = "p\(Int((Date().timeIntervalSince1970 * 1000).rounded()))"
     let path = relayDir + "/asks/\(session).json"
-    writeJSON(["kind": "permission", "id": id, "tool": toolLabel(tool),
-               "detail": describeInput(json["tool_input"] as? [String: Any] ?? [:]),
-               "project": (cwd as NSString).lastPathComponent, "began": "",
-               "at": (Date().timeIntervalSince1970 * 1000).rounded()], to: path)
+    let call = describeCall(tool, json["tool_input"] as? [String: Any] ?? [:])
+    var card: [String: Any] = ["kind": "permission", "id": id, "tool": toolLabel(tool), "detail": call.detail,
+                               "project": (cwd as NSString).lastPathComponent, "began": "",
+                               "at": (Date().timeIntervalSince1970 * 1000).rounded()]
+    if call.more > 0 { card["more"] = call.more }
+    writeJSON(card, to: path)
 
     // the card comes down with the hook, whichever way the race ends
     let takeDown = {
@@ -87,13 +89,41 @@ func toolLabel(_ tool: String) -> String {
     return rest.replacingCharacters(in: split, with: " ")
 }
 
-// the tool's own target where it has one, the mod's rule: a command, a file, an address, a path, a pattern
-func describeInput(_ input: [String: Any]) -> String {
-    for key in ["command", "file_path", "url", "path", "pattern"] {
-        if let value = input[key] as? String { return value }
+// the call in full, as the mod details a tool row, so Allow on the phone answers for what it reads: a command, a
+// written file's path and content, an edit's path and its lines marked - and +, a notebook cell's new source, a search
+// with its folder, an agent's prompt, any other input as JSON. The card holds the first `cardLongest` characters and
+// counts the rest, which the Mac's dialog shows.
+let cardLongest = 100_000
+
+func describeCall(_ tool: String, _ input: [String: Any]) -> (detail: String, more: Int) {
+    let field = { (key: String) in input[key] as? String ?? "" }
+    let marked = { (text: String, mark: String) in
+        text.split(separator: "\n", omittingEmptySubsequences: false).map { "\(mark) \($0)" }.joined(separator: "\n")
     }
-    guard let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]) else { return "" }
-    return String(String(decoding: data, as: UTF8.self).prefix(400))
+    let whole: String
+    switch tool {
+    case "Bash": whole = field("command")
+    case "Read": whole = field("file_path")
+    case "Write": whole = "\(field("file_path"))\n\n\(field("content"))"
+    case "Edit":
+        whole = "\(field("file_path"))\n\n\(marked(field("old_string"), "-"))\n\(marked(field("new_string"), "+"))"
+    case "NotebookEdit":
+        // the edit's kind first, so a cell's deletion reads as one
+        let kind = field("edit_mode").isEmpty ? "replace" : field("edit_mode")
+        let cell = [kind, "cell", field("cell_id")].filter { !$0.isEmpty }.joined(separator: " ")
+        let source = kind == "delete" ? "" : "\n\(field("new_source"))"
+        whole = "\(field("notebook_path"))\n\n\(cell)\(source)"
+    case "Grep", "Glob": whole = [field("pattern"), field("path")].filter { !$0.isEmpty }.joined(separator: "\nin ")
+    case "WebFetch": whole = field("url")
+    case "WebSearch": whole = field("query")
+    case "Agent", "Task": whole = field("prompt")
+    default:
+        let data = try? JSONSerialization.data(withJSONObject: input,
+                                               options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        whole = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
+    }
+    let detail = String(whole.prefix(cardLongest))
+    return (detail, whole.count - detail.count)
 }
 
 private func decision(_ fields: [String: Any]) -> String {

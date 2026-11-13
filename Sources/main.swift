@@ -6,10 +6,13 @@ import AppKit
 // request, puts it on the phone and prints the phone's answer, unless the Mac's dialog answers first.
 
 #if RELAY_TEST
-// a test build runs the relay alone, in the folder and on the port Tools/test-relay.sh gives it
-let testRelay = Relay()
-testRelay.start()
-RunLoop.main.run()
+// a test build runs the relay alone, in the folder and on the port Tools/test-relay.sh gives it; given --permission,
+// it runs that hook against the test relay
+if !CommandLine.arguments.contains("--permission") {
+    let testRelay = Relay()
+    testRelay.start()
+    RunLoop.main.run()
+}
 #endif
 
 // "--setup", "--remove", "--state" and "--quit": setup and removal with zero windows, in Setup.swift

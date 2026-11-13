@@ -78,9 +78,9 @@ private func takeDownPermissionCard(_ session: String, _ json: [String: Any], _ 
     let path = relayDir + "/asks/\(session).json"
     guard let card = readJSON(path), card["kind"] as? String == "permission" else { return }
     if event == "PostToolUse" {
-        let tool = (json["tool_name"] as? String).map(toolLabel) ?? ""
-        let detail = describeInput(json["tool_input"] as? [String: Any] ?? [:])
-        guard card["tool"] as? String == tool, card["detail"] as? String == detail else { return }
+        let name = json["tool_name"] as? String ?? ""
+        let detail = describeCall(name, json["tool_input"] as? [String: Any] ?? [:]).detail
+        guard card["tool"] as? String == toolLabel(name), card["detail"] as? String == detail else { return }
     }
     FileManager.default.createFile(atPath: path, contents: Data())
 }

@@ -21,7 +21,18 @@ func mimeType(_ ext: String) -> String {
 // phone's previews take the same rule at 1,000 px
 func fitImage(_ data: Data, longSide: Double = 1500) -> (data: Data, ext: String)? {
     guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-          let type = CGImageSourceGetType(source) as String?,
+          let fitted = fit(source, longSide: longSide) else { return nil }
+    return (fitted.data ?? data, fitted.ext)
+}
+
+// the same rule for a file on disk, which ImageIO reads from the file: `data` nil where the picture goes as it is
+func fitImage(at url: URL, longSide: Double = 1500) -> (data: Data?, ext: String)? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    return fit(source, longSide: longSide)
+}
+
+private func fit(_ source: CGImageSource, longSide: Double) -> (data: Data?, ext: String)? {
+    guard let type = CGImageSourceGetType(source) as String?,
           let uti = UTType(type), uti.conforms(to: .image), !uti.conforms(to: .svg),
           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
           let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
@@ -29,7 +40,7 @@ func fitImage(_ data: Data, longSide: Double = 1500) -> (data: Data, ext: String
     // a turned photo is drawn upright, since the model reads the pixels as stored
     let isTurned = ((props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1) != 1
     let scale = min(1, longSide / max(w, h), (0.667 * longSide * longSide / (w * h)).squareRoot())
-    if scale >= 1, !isTurned, let ext = takenAsIs[type] { return (data, ext) }
+    if scale >= 1, !isTurned, let ext = takenAsIs[type] { return (nil, ext) }
     let options: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
         kCGImageSourceCreateThumbnailWithTransform: true,
@@ -63,6 +74,20 @@ func safeFileName(_ raw: String) -> String {
 
 // saves the file under its own name, a number added where the name is taken, and returns the name it got
 func saveUpload(_ data: Data, named raw: String, ext: String?, in folder: String) throws -> String {
+    let saved = try freeName(raw, ext: ext, in: folder)
+    try data.write(to: URL(fileURLWithPath: folder + "/" + saved), options: .atomic)
+    return saved
+}
+
+// the same for a file the server streamed to the spool, moved into place
+func moveUpload(_ file: String, named raw: String, ext: String?, in folder: String) throws -> String {
+    let saved = try freeName(raw, ext: ext, in: folder)
+    try FileManager.default.moveItem(atPath: file, toPath: folder + "/" + saved)
+    return saved
+}
+
+// the file's own name in the folder, a number added where the name is taken
+private func freeName(_ raw: String, ext: String?, in folder: String) throws -> String {
     var name = safeFileName(raw)
     if let ext { name = (name as NSString).deletingPathExtension + "." + ext }
     try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -74,6 +99,5 @@ func saveUpload(_ data: Data, named raw: String, ext: String?, in folder: String
         saved = suffix.isEmpty ? "\(stem)-\(count)" : "\(stem)-\(count).\(suffix)"
         count += 1
     }
-    try data.write(to: URL(fileURLWithPath: folder + "/" + saved), options: .atomic)
     return saved
 }

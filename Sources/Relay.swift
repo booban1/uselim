@@ -46,6 +46,15 @@ final class Relay {
     // a held ask's waits; a question's (`always`) holds at the desk too, beside its dialog
     private var waiters: [String: [(id: Int, always: Bool, reply: (Response) -> Void)]] = [:]
     private var answers: [String: (answer: [String: Any], at: Date)] = [:]
+    // the Mac's own name on the tailnet, the one name Host and Origin carry from the phone: Tailscale's status gives it
+    // while the Phone switch is on, and the last one stands in across a restart
+    #if RELAY_TEST
+    var tailnetName = ProcessInfo.processInfo.environment["USELIM_TEST_NAME"] ?? "mac.example.ts.net"
+    #else
+    var tailnetName = UserDefaults.standard.string(forKey: "tailnetName") ?? "" {
+        didSet { if tailnetName != oldValue { UserDefaults.standard.set(tailnetName, forKey: "tailnetName") } }
+    }
+    #endif
     // the phone's Stop by chat: an ask held from before it lets go
     private var stops: [String: Date] = [:]
     private var nextWaiter = 0
@@ -105,17 +114,18 @@ final class Relay {
         notices = savedNotices?["notices"] as? [[String: Any]] ?? []
         noticesAt = savedNotices?["at"] as? Double ?? 0
         localKey = makeLocalKey()
-        pairingCode = readPairingCode()
+        readPhones()
         readGuard()
-        // a subscription from before the codes' tags joins the current code; one another code stands behind leaves
-        var tags: Set<String> = [pairingTag(pairingCode)]
-        if let previousCode { tags.insert(pairingTag(previousCode)) }
-        push.keep(tags: tags, adopting: pairingTag(pairingCode))
+        // a subscription from before the tags joins the lasting code; one that no phone stands behind leaves
+        push.keep(tags: pushTags(), adopting: legacy.first.map(pairingTag) ?? "")
         // what is on disk at the start counts as seen, so a restart sends only what arrives after it
         scan(sending: false)
-        server = Server(port: relayPort) { [weak self] request, reply in
-            self?.route(request, reply)
-        }
+        server = Server(port: relayPort, spool: relayDir + "/spool",
+                        admit: { [weak self] (request: inout Request) -> Response? in
+                            guard let self else { return .text("Relay closed", status: 503) }
+                            return self.admit(&request)
+                        },
+                        route: { [weak self] request, reply in self?.route(request, reply) })
         server?.start()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
         tick()
@@ -132,11 +142,42 @@ final class Relay {
 
     // MARK: pairing
 
-    // the code a phone pairs with, kept in relay/pairing.json and made once: six digits from the system's secure random
-    // source. A ten-character code from before the six digits stays as "previous" and keeps its phones working until a
-    // phone pairs with the new one.
-    private(set) var pairingCode = ""
-    private var previousCode: String?
+    // A phone pairs once with six digits from Pair a phone and gets its own key: 32 random bytes, kept on the phone and
+    // sent with every call, and kept on the Mac as their SHA-256 beside the phone's name in relay/phones.json. The
+    // digits pair one phone, within ten minutes, while Pair a phone stays open; Remove there ends a phone's key and
+    // its notifications. The lasting code from before the phones' own keys (relay/pairing.json) keeps working for
+    // fourteen days after the update, and the first pairing call carrying it trades it for that phone's key.
+    struct Phone {
+        let id: String
+        var name: String
+        let hash: String
+        let paired: Date
+        var seen: Date
+    }
+
+    private(set) var phones: [Phone] = []
+    private var seenSaved = Date.distantPast
+    // the digits on show in Pair a phone, and until when they pair
+    private(set) var pairCode: String?
+    private var pairCodeUntil = Date.distantPast
+    // the codes used or run out within the hour, as their tags, so the phone tells a spent code from a mistyped one
+    private var spent: [String: Date] = [:]
+    // the lasting code from before, and the end of its days
+    private var legacy: [String] = []
+    private var legacyUntil = Date.distantPast
+    // Pair a phone's redraw: a phone paired, or one left the list
+    var onPhones: (() -> Void)?
+    #if RELAY_TEST
+    private let pairSeconds = Double(ProcessInfo.processInfo.environment["USELIM_TEST_PAIR_SECONDS"] ?? "") ?? 600
+    var tailnetLogin = ProcessInfo.processInfo.environment["USELIM_TEST_LOGIN"] ?? ""
+    #else
+    private let pairSeconds = 600.0
+    // the Mac's own login on the tailnet, which Tailscale Serve names on each request from the phone
+    var tailnetLogin = UserDefaults.standard.string(forKey: "tailnetLogin") ?? "" {
+        didSet { if tailnetLogin != oldValue { UserDefaults.standard.set(tailnetLogin, forKey: "tailnetLogin") } }
+    }
+    #endif
+    private var isLoginNoted = false
     // wrong codes per device (the phone's tailnet address, as Tailscale Serve forwards it): the distinct codes sent, so a
     // phone repeating its one stale code counts once; from the fifth, the device pauses a minute, doubling to an hour,
     // and every code from it waits out the pause, the right one included. Tailscale stays the outer gate. A right code
@@ -145,36 +186,149 @@ final class Relay {
     // keeps its pause; each code is kept as its tag.
     private var misses: [String: (codes: Set<String>, until: Date, last: Date)] = [:]
 
-    private func readPairingCode() -> String {
-        let path = relayDir + "/pairing.json"
-        let saved = readJSON(path)
-        if let code = saved?["code"] as? String, code.count == 6, code.allSatisfy(\.isNumber) {
-            previousCode = saved?["previous"] as? String
-            return code
+    // the phones, and the lasting code from before with its fourteen days, counted from the first start that found it
+    private func readPhones() {
+        phones = (readJSON(relayDir + "/phones.json")?["phones"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let id = row["id"] as? String, let hash = row["hash"] as? String else { return nil }
+            return Phone(id: id, name: row["name"] as? String ?? "Phone", hash: hash,
+                         paired: Date(timeIntervalSince1970: (row["paired"] as? Double ?? 0) / 1000),
+                         seen: Date(timeIntervalSince1970: (row["seen"] as? Double ?? 0) / 1000))
         }
-        let code = String(format: "%06d", Int.random(in: 0..<1_000_000))
-        previousCode = saved?["code"] as? String
-        savePairing(code)
-        return code
+        let path = relayDir + "/pairing.json"
+        guard var record = readJSON(path) else { return }
+        legacy = [record["code"] as? String, record["previous"] as? String].compactMap { $0 }.filter { !$0.isEmpty }
+        if let until = record["until"] as? Double {
+            legacyUntil = Date(timeIntervalSince1970: until / 1000)
+        } else {
+            legacyUntil = Date().addingTimeInterval(14 * 86_400)
+            record["until"] = millis(legacyUntil)
+            writeJSON(record, to: path)
+            chmod(path, 0o600)
+        }
+        if legacy.isEmpty || legacyUntil < Date() { retireLegacy() }
     }
 
-    private func savePairing(_ code: String) {
-        let path = relayDir + "/pairing.json"
-        var record: [String: Any] = ["code": code]
-        if let previousCode { record["previous"] = previousCode }
-        writeJSON(record, to: path)
+    private func savePhones() {
+        let path = relayDir + "/phones.json"
+        let rows: [[String: Any]] = phones.map {
+            ["id": $0.id, "name": $0.name, "hash": $0.hash, "paired": millis($0.paired), "seen": millis($0.seen)]
+        }
+        writeJSON(["phones": rows], to: path)
         chmod(path, 0o600)
     }
 
-    private enum Pairing { case current, previous, wrong, blank }
+    private func retireLegacy() {
+        legacy = []
+        try? FileManager.default.removeItem(atPath: relayDir + "/pairing.json")
+    }
 
-    // a code as typed: digits alone for the six-digit code; the previous code in any case, its dash and spaces left out
-    private func pairing(_ given: String?) -> Pairing {
+    // Pair a phone opening, or its minutes running out: fresh digits from the system's secure random source
+    @discardableResult
+    func openPairing() -> String {
+        if let pairCode { spend(pairCode) }
+        let code = String(format: "%06d", Int.random(in: 0..<1_000_000))
+        pairCode = code
+        pairCodeUntil = Date().addingTimeInterval(pairSeconds)
+        return code
+    }
+
+    // the seconds the digits on show still pair
+    var pairSecondsLeft: Int { max(0, Int(pairCodeUntil.timeIntervalSinceNow.rounded(.up))) }
+
+    // Pair a phone closing: its digits pair nothing more
+    func closePairing() {
+        if let pairCode { spend(pairCode) }
+        pairCode = nil
+    }
+
+    private func spend(_ code: String) {
+        let now = Date()
+        spent = spent.filter { now.timeIntervalSince($0.value) < 3600 }
+        spent[pairingTag(code)] = now
+    }
+
+    // Remove in Pair a phone: the phone's key ends, and its notifications with it
+    func removePhone(_ id: String) {
+        guard let phone = phones.first(where: { $0.id == id }) else { return }
+        phones.removeAll { $0.id == id }
+        savePhones()
+        push.keep(tags: pushTags(), adopting: "")
+        note("relay: \(phone.name) removed")
+        onPhones?()
+    }
+
+    // the tags the notification subscriptions may carry: each phone's own, and the lasting code's through its days
+    private func pushTags() -> Set<String> {
+        Set(phones.map(\.id)).union(legacy.map(pairingTag))
+    }
+
+    private enum Key: Equatable { case phone(String), pairCode, legacy(String), spent, wrong, blank }
+
+    // what a request's key names: a phone's own key; on the pairing call, the digits on show; the lasting code within
+    // its days, in any case, its dash and spaces left out; digits spent within the hour; or nothing
+    private func keyOf(_ given: String?, path: String) -> Key {
         guard let given, !given.isEmpty else { return .blank }
-        if !pairingCode.isEmpty, given.filter(\.isNumber) == pairingCode, given.filter(\.isLetter).isEmpty { return .current }
+        let hash = sha256Hex(given)
+        if let phone = phones.first(where: { $0.hash == hash }) { return .phone(phone.id) }
+        let digits = given.filter(\.isNumber)
+        let isDigits = given.allSatisfy { $0.isNumber || $0 == " " }
+        if path == "/api/pair", isDigits, let pairCode, Date() < pairCodeUntil, digits == pairCode { return .pairCode }
         let clean = { (text: String) in text.uppercased().filter { $0.isLetter || $0.isNumber } }
-        if let previousCode, clean(given) == clean(previousCode) { return .previous }
+        if Date() < legacyUntil, let code = legacy.first(where: { clean($0) == clean(given) }) { return .legacy(code) }
+        if isDigits, digits.count == 6, spent[pairingTag(digits)] != nil || digits == pairCode { return .spent }
         return .wrong
+    }
+
+    // the phone's name from its browser: the kind of device its User-Agent names, a number added past the first
+    private func phoneName(_ agent: String?) -> String {
+        let agent = agent ?? ""
+        let kind = agent.contains("iPhone") ? "iPhone" : agent.contains("iPad") ? "iPad"
+            : agent.contains("Android") ? "Android phone" : agent.contains("Macintosh") ? "Mac" : "Phone"
+        let taken = Set(phones.map(\.name))
+        guard taken.contains(kind) else { return kind }
+        var number = 2
+        while taken.contains("\(kind) \(number)") { number += 1 }
+        return "\(kind) \(number)"
+    }
+
+    // a phone's request: its last sight, kept to disk once a minute at most
+    private func see(_ id: String) {
+        guard let at = phones.firstIndex(where: { $0.id == id }) else { return }
+        phones[at].seen = Date()
+        guard Date().timeIntervalSince(seenSaved) > 60 else { return }
+        seenSaved = Date()
+        savePhones()
+    }
+
+    // the phone's pairing call: the digits on show in Pair a phone, or the lasting code from before, traded for the
+    // phone's own key; the digits pair this one phone, and the lasting code retires, its notifications moving to it
+    private func pair(_ request: Request) -> Response {
+        let key = keyOf(request.headers["x-uselim-key"], path: "/api/pair")
+        let isTraded: Bool
+        switch key {
+        case .pairCode: isTraded = false
+        case .legacy: isTraded = true
+        default: return .text("Pairing refused", status: 400)
+        }
+        guard isRemote(request) else { return .text("Phone only", status: 403) }
+        let token = base64URL(SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) })
+        let id = "p" + SymmetricKey(size: .bits128).withUnsafeBytes { Data($0) }.prefix(4)
+            .map { String(format: "%02x", $0) }.joined()
+        let phone = Phone(id: id, name: phoneName(request.headers["user-agent"]), hash: sha256Hex(token),
+                          paired: Date(), seen: Date())
+        phones.append(phone)
+        savePhones()
+        if isTraded {
+            for code in legacy { push.retag(from: pairingTag(code), to: phone.id) }
+            retireLegacy()
+            note("relay: \(phone.name) paired, trading the lasting code from before for its own key")
+        } else {
+            if let pairCode { spend(pairCode) }
+            pairCode = nil
+            note("relay: \(phone.name) paired")
+        }
+        onPhones?()
+        return .json(["token": token, "name": phone.name])
     }
 
     // a request from the phone through Tailscale Serve, which forwards with the tailnet's own name and the phone's address
@@ -239,6 +393,11 @@ final class Relay {
     private func pairingTag(_ code: String) -> String {
         let mac = HMAC<SHA256>.authenticationCode(for: Data(code.utf8), using: SymmetricKey(data: Data(localKey.utf8)))
         return mac.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    // a phone's key as the Mac keeps it
+    private func sha256Hex(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     // X-Forwarded-For names the device, and a program on the Mac can name any address in it, so the per-device count
@@ -330,6 +489,12 @@ final class Relay {
         }
         answers = answers.filter { Date().timeIntervalSince($0.value.at) < 600 }
         stops = stops.filter { Date().timeIntervalSince($0.value) < 60 }
+        // the lasting code's days over while Uselim runs: it retires at once, its notifications with it
+        if !legacy.isEmpty, Date() >= legacyUntil {
+            retireLegacy()
+            push.keep(tags: pushTags(), adopting: "")
+            note("relay: the lasting code from before retired, its fourteen days over")
+        }
         scan(sending: true)
         settleCards()
         revealWaiting()
@@ -681,7 +846,29 @@ final class Relay {
 
     // MARK: requests
 
-    private func route(_ request: Request, _ reply: @escaping (Response) -> Void) {
+    // the checks a request passes at its head, before any of its body is read: its Host, the header and Origin on /api
+    // and /relay, and its key; an answer here ends the request
+    private func admit(_ request: inout Request) -> Response? {
+        var answer: Response?
+        check(request) { answer = $0 }
+        // the key that let a request from the phone in, for the route to find it still standing
+        if answer == nil, isRemote(request) {
+            switch keyOf(request.headers["x-uselim-key"], path: request.path) {
+            case .phone(let id): request.key = id
+            case .legacy: request.key = "lasting"
+            default: break
+            }
+        }
+        return answer
+    }
+
+    // a key that ended while its request's body arrived: Remove took its phone, or the lasting code retired
+    private func isEnded(_ key: String?) -> Bool {
+        guard let key else { return false }
+        return key == "lasting" ? legacy.isEmpty : !phones.contains { $0.id == key }
+    }
+
+    private func check(_ request: Request, _ reply: (Response) -> Void) {
         guard hostKnown(request.headers["host"]) else { return reply(.text("Host refused", status: 403)) }
         if request.path.hasPrefix("/api/") || request.path.hasPrefix("/relay/") {
             guard request.headers["x-uselim"] == "1" else { return reply(.text("Header missing", status: 403)) }
@@ -695,47 +882,57 @@ final class Relay {
         if isRemote(request) {
             if request.path.hasPrefix("/relay/") { return reply(.text("Local only", status: 403)) }
             if request.path.hasPrefix("/api/") {
+                // Tailscale Serve names the tailnet login behind each request: one naming another login stops here
+                if let login = request.headers["tailscale-user-login"]?.lowercased() {
+                    if !isLoginNoted {
+                        isLoginNoted = true
+                        note("relay: Tailscale Serve names the login behind the phone's requests")
+                    }
+                    if !tailnetLogin.isEmpty, login != tailnetLogin.lowercased() {
+                        return reply(.text("Login refused", status: 403))
+                    }
+                }
                 let from = device(request)
                 let given = request.headers["x-uselim-key"]
-                let match = pairing(given)
-                // a blank code answers 401 at once, free and alike for every address
-                if match == .blank { return reply(.text("Pairing needed", status: 401)) }
+                let key = keyOf(given, path: request.path)
+                // a blank key answers 401 at once, free and alike for every address
+                if key == .blank { return reply(.text("Pairing needed", status: 401)) }
                 if let wait = pausedFor(from) {
                     return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
                 }
-                // a paired address's wrong code always goes into its own saved count; while the pause across unpaired
+                // spent digits count as wrong ones, and the phone hears they are spent
+                let refusal: Response = key == .spent
+                    ? .json(["error": "Pairing needed", "reason": "spent"], status: 401)
+                    : .text("Pairing needed", status: 401)
+                let isWrong = key == .wrong || key == .spent
+                // a paired address's wrong key always goes into its own saved count; while the pause across unpaired
                 // devices lasts it answers 429 like theirs, so every address answers alike and every try costs
-                if match == .wrong, known[from] != nil {
+                if isWrong, known[from] != nil {
                     missed(from, given ?? "")
                     if let wait = pausedFor(from) ?? strangersWait() {
                         return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
                     }
-                    return reply(.text("Pairing needed", status: 401))
+                    return reply(refusal)
                 }
                 if let wait = strangerPause(from) {
                     return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
                 }
-                switch match {
-                case .current:
+                switch key {
+                case .phone(let id):
                     know(from)
-                    if let previousCode {
-                        push.retag(from: pairingTag(previousCode), to: pairingTag(pairingCode))
-                        self.previousCode = nil
-                        savePairing(pairingCode)
-                        note("relay: a phone paired with the six-digit code; the previous code retired")
-                    }
-                case .previous:
+                    see(id)
+                case .pairCode, .legacy:
                     know(from)
                 case .blank:
                     return reply(.text("Pairing needed", status: 401))
-                case .wrong:
+                case .wrong, .spent:
                     // a device yet to pair: its own count, and the count across them all
                     missed(from, given ?? "")
                     strangerMissed(given ?? "")
                     if let wait = pausedFor(from) ?? strangerPause(from) {
                         return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
                     }
-                    return reply(.text("Pairing needed", status: 401))
+                    return reply(refusal)
                 }
             }
         } else if request.path.hasPrefix("/api/") || request.path.hasPrefix("/relay/") {
@@ -749,6 +946,11 @@ final class Relay {
                 note("relay: a chat's older mod waits on the header alone; its next start brings the key")
             }
         }
+    }
+
+    // the handlers, for a request `admit` let through, its body whole, its key still standing
+    private func route(_ request: Request, _ reply: @escaping (Response) -> Void) {
+        if isEnded(request.key) { return reply(.text("Pairing needed", status: 401)) }
         switch (request.method, request.path) {
         case ("GET", "/api/state"):
             viewing = nil
@@ -794,8 +996,18 @@ final class Relay {
             reply(.json(noticesJSON(since: Double(request.query["since"] ?? ""))))
         case ("POST", "/api/notices"):
             reply(changeNotices(request))
+        case ("POST", "/api/pair"):
+            reply(pair(request))
         case ("POST", "/api/push"):
             reply(subscribe(request))
+        #if RELAY_TEST
+        // the test build's stand-ins for Pair a phone: its digits, and its Remove
+        case ("POST", "/relay/test-pair"):
+            reply(.json(["code": openPairing()]))
+        case ("POST", "/relay/test-remove"):
+            removePhone(request.query["id"] ?? "")
+            reply(.json(["ok": true]))
+        #endif
         case ("POST", "/api/test"):
             push.send(title: "Notifications on", body: "Replies and asks from your chats arrive here", url: "/", tag: "test")
             reply(.json(["ok": true, "count": push.count]))
@@ -811,13 +1023,17 @@ final class Relay {
     private func hostKnown(_ host: String?) -> Bool {
         guard let host = host?.lowercased() else { return false }
         let name = host.split(separator: ":").first.map(String.init) ?? host
-        return host == "127.0.0.1:\(relayPort)" || host == "localhost:\(relayPort)" || name.hasSuffix(".ts.net")
+        return host == "127.0.0.1:\(relayPort)" || host == "localhost:\(relayPort)" || isOwnName(name)
     }
 
     private func originKnown(_ origin: String) -> Bool {
         guard let url = URL(string: origin.lowercased()), let host = url.host else { return false }
-        if host.hasSuffix(".ts.net") { return true }
+        if isOwnName(host) { return true }
         return (host == "127.0.0.1" || host == "localhost") && url.port == Int(relayPort)
+    }
+
+    private func isOwnName(_ name: String) -> Bool {
+        !tailnetName.isEmpty && name == tailnetName.lowercased()
     }
 
     private func stateJSON() -> [String: Any] {
@@ -915,17 +1131,21 @@ final class Relay {
     }
 
     // a file from the phone, sent ahead of its message: a picture is fitted off the main thread, then saved
+    // a file from the phone, which the server streamed to the spool: a picture fitted, ImageIO reading it from the
+    // file, and anything else moved into place as it came
     private func upload(_ request: Request, _ reply: @escaping (Response) -> Void) {
-        guard let session = request.query["session"], isSessionID(session), isKnown(session),
-              !request.body.isEmpty else { return reply(.text("Upload refused", status: 400)) }
+        let size = request.bodyFile.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? Int } ?? 0
+        guard let file = request.bodyFile, size > 0, let session = request.query["session"], isSessionID(session),
+              isKnown(session) else { return reply(.text("Upload refused", status: 400)) }
         phoneActive = Date()
         let name = request.query["name"] ?? ""
         let folder = relayDir + "/files/\(session)"
         DispatchQueue.global(qos: .userInitiated).async {
-            let fitted = fitImage(request.body)
+            let fitted = fitImage(at: URL(fileURLWithPath: file))
             DispatchQueue.main.async {
                 do {
-                    let saved = try saveUpload(fitted?.data ?? request.body, named: name, ext: fitted?.ext, in: folder)
+                    let saved = try fitted?.data.map { try saveUpload($0, named: name, ext: fitted?.ext, in: folder) }
+                        ?? moveUpload(file, named: name, ext: fitted?.ext, in: folder)
                     note("relay: a file from the phone saved for \(self.projectName(session)), \(saved)")
                     reply(.json(["ok": true, "name": saved]))
                 } catch {
@@ -1116,6 +1336,11 @@ final class Relay {
         if let given = body["answers"] as? [String: Any] { answer["answers"] = given.compactMapValues { $0 as? String } }
         if let allow = body["allow"] as? Bool { answer["allow"] = allow }
         guard !answer.isEmpty else { return .text("Answer refused", status: 400) }
+        // the ask the chat holds this moment alone takes an answer; one that moved on (answered at the Mac, its turn
+        // over, a newer ask in its place) answers 409, and the phone closes its card
+        guard readJSON(relayDir + "/asks/\(session).json")?["id"] as? String == ask else {
+            return .text("Ask moved on", status: 409)
+        }
         phoneActive = Date()
         let key = "\(session)/\(ask)"
         if let list = waiters.removeValue(forKey: key), !list.isEmpty {
@@ -1127,15 +1352,21 @@ final class Relay {
         return .json(["ok": true])
     }
 
-    // a phone's subscription alone, under the code it paired with, which stands behind it from then on
+    // a phone's subscription alone, under the phone's own tag (the lasting code's, from a phone yet to trade it), which
+    // stands behind it from then on: Remove ends both
     private func subscribe(_ request: Request) -> Response {
         guard isRemote(request) else { return .text("Phone only", status: 403) }
         guard let body = jsonObject(request.body), let subscription = body["subscription"] as? [String: Any] else {
             return .text("Subscription refused", status: 400)
         }
-        let code = pairing(request.headers["x-uselim-key"]) == .previous ? previousCode ?? pairingCode : pairingCode
+        let tag: String
+        switch keyOf(request.headers["x-uselim-key"], path: request.path) {
+        case .phone(let id): tag = id
+        case .legacy(let code): tag = pairingTag(code)
+        default: return .text("Subscription refused", status: 400)
+        }
         let origin = request.headers["origin"] ?? "https://\(request.headers["host"] ?? "localhost")"
-        guard push.add(subscription, origin: origin, tag: pairingTag(code)) else {
+        guard push.add(subscription, origin: origin, tag: tag) else {
             return .text("Subscription refused", status: 400)
         }
         return .json(["ok": true, "count": push.count])
@@ -1252,7 +1483,9 @@ private func askText(_ ask: [String: Any]) -> String {
             [q["header"] as? String, q["question"] as? String].compactMap { $0 }.joined(separator: ": ")
         }.joined(separator: " · ")
     }
-    return [ask["tool"] as? String, ask["detail"] as? String].compactMap { $0 }.joined(separator: ": ")
+    // a permission's call in full rides on the card; the notice names its first line, a command's or a file's path
+    let first = (ask["detail"] as? String)?.split(separator: "\n", maxSplits: 1).first.map(String.init)
+    return [ask["tool"] as? String, first].compactMap { $0 }.joined(separator: ": ")
 }
 
 private func preview(_ text: String, _ length: Int) -> String {

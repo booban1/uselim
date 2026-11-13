@@ -49,18 +49,18 @@
   </header>
   <form id="pairForm" class="group" autocomplete="off">
     <h2>Pair this phone</h2>
-    <div class="card pair-field"><input id="pairCode" class="rename-input pair-input" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" enterkeyhint="go" placeholder="123 456"><button id="pairScan" class="scan" type="button" aria-label="Scan the code"><span class="mask scan-mask"></span></button></div>
+    <div class="card pair-field"><input id="pairCode" class="rename-input pair-input" type="text" aria-label="Pairing code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" enterkeyhint="go" placeholder="123 456"><button id="pairScan" class="scan" type="button" aria-label="Scan the code"><span class="mask scan-mask"></span></button></div>
     <p class="foot">The code sits in Pair a phone… in Uselim's menu on the Mac.</p>
-    <p id="pairNote" class="foot"></p>
-    <div class="actions sheet-actions"><button id="pairLater" type="button" hidden>Later</button><button class="strong" type="submit">Pair</button></div>
+    <p id="pairNote" class="foot" role="status"></p>
+    <div class="actions sheet-actions"><button class="strong" type="submit">Pair</button></div>
   </form>
 </main>
 
 <!-- the camera, reading the Pair window's QR code inside the app; the scan icon in the pairing field opens it -->
-<div id="scanner" class="scanner" hidden>
+<div id="scanner" class="scanner" role="dialog" aria-modal="true" aria-label="Scan the code" aria-describedby="scanHint" hidden>
   <video id="scanVideo" playsinline muted></video>
   <div class="scan-frame"><i></i><i></i><i></i><i></i></div>
-  <p class="scan-hint">Point the camera at the code in Pair a phone… on the Mac.</p>
+  <p id="scanHint" class="scan-hint">Point the camera at the code in Pair a phone… on the Mac.</p>
   <button id="scanCancel" class="scan-cancel" type="button">Cancel</button>
 </div>
 
@@ -68,7 +68,7 @@
   <header class="nav">
     <button id="noticesBack" class="back" type="button"><span class="mask back-mask"></span>Uselim</button>
     <div class="heading">
-      <div class="name">Notifications</div>
+      <div class="name" role="heading" aria-level="1">Notifications</div>
     </div>
     <button id="openSettings" class="gear" type="button" aria-label="Notification Center"><span class="mask gear-mask"></span></button>
   </header>
@@ -79,7 +79,7 @@
   <header class="nav">
     <button id="settingsBack" class="back" type="button"><span class="mask back-mask"></span>Notifications</button>
     <div class="heading">
-      <div class="name">Notification Center</div>
+      <div class="name" role="heading" aria-level="1">Notification Center</div>
     </div>
   </header>
   <section class="group">
@@ -103,7 +103,7 @@
       <div class="row">
         <div class="grow">
           <div class="title">Send a test</div>
-          <div id="testState" class="sub">One notice to this phone now</div>
+          <div id="testState" class="sub" role="status">One notice to this phone now</div>
         </div>
         <button id="pushTest" class="pill" type="button">Test</button>
       </div>
@@ -115,7 +115,7 @@
   <header class="nav">
     <button id="back" class="back" type="button"><span class="mask back-mask"></span>Chats</button>
     <div class="heading">
-      <div id="chatProject" class="name"></div>
+      <div id="chatProject" class="name" role="heading" aria-level="1"></div>
       <div id="chatBegan" class="began"></div>
     </div>
   </header>
@@ -126,24 +126,26 @@
     <button id="modelPill" class="model-pill" type="button" hidden><span id="modelText"></span><span class="mask updown-mask"></span></button>
     <div id="tray" class="tray" hidden></div>
     <div class="entry">
-      <label class="attach" for="files" aria-label="Attach"><span class="mask attach-mask"></span></label>
-      <input id="files" class="file-input" type="file" multiple>
-      <textarea id="text" rows="1" placeholder="Message"></textarea>
+      <label class="attach" for="files" role="button" aria-label="Attach"><span class="mask attach-mask"></span></label>
+      <input id="files" class="file-input" type="file" multiple aria-hidden="true" tabindex="-1">
+      <textarea id="text" rows="1" placeholder="Message" aria-label="Message"></textarea>
       <button id="send" class="send" type="submit" aria-label="Send"><span class="mask send-mask"></span></button>
     </div>
   </form>
 </main>
 
-<div id="viewer" class="viewer" hidden>
+<!-- the picture across the screen; Close, kept for VoiceOver alone, ends it the way a tap does -->
+<div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="Picture" hidden>
   <img id="viewerPicture" alt="" draggable="false">
+  <button id="viewerClose" class="vh" type="button">Close</button>
 </div>
 
 <!-- a chat's new name, from a row's Rename -->
 <div id="renamer" class="sheet-backdrop" hidden>
-  <form id="renameForm" class="sheet" autocomplete="off">
+  <form id="renameForm" class="sheet" role="dialog" aria-modal="true" aria-label="Rename" autocomplete="off">
     <section class="group">
       <h2>Name</h2>
-      <div class="card"><input id="renameText" class="rename-input" type="text" maxlength="100" enterkeyhint="done"></div>
+      <div class="card"><input id="renameText" class="rename-input" type="text" aria-label="Name" maxlength="100" enterkeyhint="done"></div>
     </section>
     <div class="actions sheet-actions">
       <button id="renameCancel" type="button">Cancel</button>
@@ -155,7 +157,7 @@
 <!-- the switch for the open chat's model and effort: a sheet from the bottom; "Done", "Model" and "Effort" are
      stand-in labels, his to swap -->
 <div id="switcher" class="sheet-backdrop" hidden>
-  <div class="sheet" role="dialog" aria-label="Model and effort">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Model and effort">
     <div class="sheet-head"><button id="switcherDone" class="done" type="button">Done</button></div>
     <section class="group">
       <h2>Model</h2>

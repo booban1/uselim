@@ -435,26 +435,53 @@ test('the dialog can answer first, and the phone lets the question go', async ($
   expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
 })
 
-// 400 waits of 20 s each: over two hours with the dialog open, as a question asked overnight
-test('a question stays on the phone past an hour of waits, until an answer comes', async ($, on) => {
-  const { files } = world(on, 1_000_000)
+// a question's wait counts toward 180 rounds only the "waiting" that comes back within 10 s; one held 10 s or more, as
+// Uselim's server holds every wait (20 s), runs on, so a question asked overnight stays on the phone. Here 179 come back
+// at once, ten are held 10 s, and the next quick one is the 180th
+test('a question stays on the phone through every paced wait; quick ones alone count toward the cap', async ($, on) => {
+  const { files, clock } = world(on, 1_000_000)
   let waits = 0
   let heldLate = ''
-  on('http.fetch', () => {
+  on('http.fetch', async () => {
     waits += 1
-    if (waits === 200) heldLate = files.get(`${RELAY}/asks/${SESSION}.json`) ?? ''
-    if (waits < 400) return reply({ state: 'waiting' })
-    return reply({ state: 'answered', answer: { answers: { 'Which phone app?': 'Web app' } } })
+    if (waits === 185) heldLate = files.get(`${RELAY}/asks/${SESSION}.json`) ?? ''
+    if (waits >= 180 && waits < 190) await clock.sleep(10_000)
+    return reply({ state: 'waiting' })
   })
-  dialog(on)
+  const opened = dialog(on)
   await $.session.start(START)
 
-  const answered = await $.tool.call({ tool: 'AskUserQuestion', questions: [QUESTION] })
+  const asking = $.tool.call({ tool: 'AskUserQuestion', questions: [QUESTION] })
+  await clock.settle()
+  for (let i = 0; i < 10; i += 1) await clock.advance(10_000)
+  await clock.settle()
 
-  expect(waits).toBe(400)
+  expect(waits).toBe(190)
   expect(JSON.parse(heldLate).kind).toBe('question')
-  expect((answered.result as { answers?: unknown } | undefined)?.answers).toEqual({ 'Which phone app?': 'Web app' })
   expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
+  opened[0]?.answer({ questions: [QUESTION], answers: { 'Which phone app?': 'Native' } })
+  const answered = await asking
+  expect((answered.result as { answers?: unknown } | undefined)?.answers).toEqual({ 'Which phone app?': 'Native' })
+})
+
+test('a server answering "waiting" at once meets the cap of 180, and the dialog keeps the question', async ($, on) => {
+  const { files, clock } = world(on, 1_000_000)
+  let waits = 0
+  on('http.fetch', () => {
+    waits += 1
+    return reply({ state: 'waiting' })
+  })
+  const opened = dialog(on)
+  await $.session.start(START)
+
+  const asking = $.tool.call({ tool: 'AskUserQuestion', questions: [QUESTION] })
+  await clock.settle()
+
+  expect(waits).toBe(180)
+  expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
+  opened[0]?.answer({ questions: [QUESTION], answers: { 'Which phone app?': 'Native' } })
+  const answered = await asking
+  expect((answered.result as { answers?: unknown } | undefined)?.answers).toEqual({ 'Which phone app?': 'Native' })
 })
 
 test("a permission's wait ends at the dialog after an hour of waits", async ($, on) => {
@@ -526,4 +553,28 @@ test('away from the Mac, a permission takes the phone allow', async ($, on) => {
   expect(decided.decision).toEqual({ behavior: 'allow' })
   const ask = files.get(`${RELAY}/asks/${SESSION}.json`)
   expect(ask).toBe('')
+})
+
+test("a permission's card carries the call in full: an edit's path and both sides, a long file's rest counted", async ($, on) => {
+  const { files } = world(on, 1_000_000)
+  const cards: string[] = []
+  on('http.fetch', () => {
+    cards.push(files.get(`${RELAY}/asks/${SESSION}.json`) ?? '')
+    return reply({ state: 'answered', answer: { allow: true } })
+  })
+  await $.session.start(START)
+  files.set(`${RELAY}/away.json`, JSON.stringify({ away: true, at: 1_000_000 }))
+
+  const edit = { file_path: '/test/a.txt', old_string: 'one\ntwo', new_string: 'one\nthree' }
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: edit })
+  await $.classic.PermissionRequest({ tool_name: 'Write', tool_input: { file_path: '/test/b.txt', content: 'x'.repeat(100_010) } })
+  const cell = { notebook_path: '/test/n.ipynb', cell_id: 'c7', edit_mode: 'delete', new_source: '' }
+  await $.classic.PermissionRequest({ tool_name: 'NotebookEdit', tool_input: cell })
+
+  const [edited, written, deleted] = cards.map(card => JSON.parse(card))
+  expect(edited.detail).toBe('/test/a.txt\n\n- one\n- two\n+ one\n+ three')
+  expect(edited.more).toBeUndefined()
+  expect(written.detail.length).toBe(100_000)
+  expect(written.more).toBe(23)
+  expect(deleted.detail).toBe('/test/n.ipynb\n\ndelete cell c7')
 })

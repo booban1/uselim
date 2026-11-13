@@ -4,9 +4,10 @@
 // highlight.js 11.12.0 (BSD-3, highlight.LICENSE.txt), with its common languages
 import hljs from '/highlight-11.12.0.min.js'
 
-// the pairing code from the Mac's Pair a phone: six digits, kept on the phone and sent with every call; the QR code's
-// link carries it in its fragment, which never leaves the phone. A longer code from before the six digits keeps working
-// until this phone takes the new one (showRenewal).
+// this phone's own key from the Mac, kept on the phone and sent with every call. The six digits from Pair a phone pair
+// once and trade for it; so does the lasting code from before the phones' own keys, by itself, while the calls go on
+// with it meanwhile. The QR code's link carries the digits in its fragment, which never leaves the phone: they fill the
+// pairing field, so a Safari tab opened from the Camera on the way to the Home Screen spends nothing.
 const PAIRING = 'uselimPairing'
 let pairing = ''
 try {
@@ -15,16 +16,22 @@ try {
   // a phone that keeps nothing asks for the code again on its next start
 }
 const isSixDigits = code => /^\d{6}$/.test(code)
+let linkedCode = ''
 {
   const linked = /^#pair=(\d{6})$/.exec(location.hash)
   if (linked) {
-    pairing = linked[1]
-    try {
-      localStorage.setItem(PAIRING, pairing)
-    } catch {
-      // kept for this visit alone
-    }
+    linkedCode = linked[1]
     history.replaceState(null, '', location.pathname + location.search)
+  }
+}
+
+function keep(key) {
+  pairing = key
+  try {
+    if (key) localStorage.setItem(PAIRING, key)
+    else localStorage.removeItem(PAIRING)
+  } catch {
+    // kept for this visit alone
   }
 }
 let isUnpaired = false // the Mac asked for the code: the polls rest until it is entered
@@ -115,7 +122,9 @@ function picture(path) {
 // a thumbnail that fills in once its picture arrives; a tap opens it across the screen
 function thumb(path) {
   const node = el('img', 'shot')
-  node.alt = ''
+  // VoiceOver reads a thumbnail as a button that opens its picture
+  node.alt = 'Picture'
+  node.setAttribute('role', 'button')
   // a view that sat at the end stays there as the picture takes its room
   node.addEventListener('load', () => {
     const box = byId('messages')
@@ -132,9 +141,16 @@ function thumb(path) {
       byId('viewerPicture').src = url
       resetZoom()
       byId('viewer').hidden = false
+      // VoiceOver lands on the viewer's Close, its way out by a double tap
+      byId('viewerClose').focus()
     })
   })
   return node
+}
+
+function closeViewer() {
+  byId('viewer').hidden = true
+  resetZoom()
 }
 
 // the open picture: two fingers pinch it between 1x and 5x, one finger moves a picture bigger than 1x, a double tap
@@ -238,10 +254,7 @@ function tapViewer(point, isSecond) {
   }
   lastTap = { ...point, at: Date.now() }
   if (zoom.scale > 1) return
-  closing = setTimeout(() => {
-    byId('viewer').hidden = true
-    resetZoom()
-  }, 350)
+  closing = setTimeout(closeViewer, 350)
 }
 
 // a picture the mod saved goes by its key; one on an earlier page by its place in the transcript ("@line-block")
@@ -257,7 +270,9 @@ async function call(path, body) {
       ? { headers: headers() }
       : { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   const response = await fetch(path, init)
-  if (response.status === 401) showPairing()
+  // a key the Mac turned down: the phone's own (removed on the Mac), or digits spent or past their days
+  if (response.status === 401) showPairing(!pairing ? '' : isSixDigits(pairing) ? SPENT : REMOVED)
+  if (response.ok && isSixDigits(pairing)) pairWith(pairing)
   if (response.status === 429) {
     // this phone sent too many wrong codes: the Mac answers again once its pause ends
     const wait = (await response.json().catch(() => ({}))).wait ?? 60
@@ -268,43 +283,62 @@ async function call(path, body) {
   return response.json()
 }
 
-// MARK: pairing: the six digits from the Mac's Pair a phone, entered once
+// MARK: pairing: the six digits from the Mac's Pair a phone, traded once for this phone's own key
 
-function showPairing(note = pairing ? PAIR_AGAIN : '') {
+function showPairing(note = '') {
+  byId('pairNote').textContent = note
   if (isUnpaired) return
   isUnpaired = true
   for (const name of VIEWS) byId(name).hidden = true
   byId('pair').hidden = false
-  byId('pairNote').textContent = note
   byId('pairCode').value = ''
-  byId('pairLater').hidden = true
 }
 
-// a code from before the six digits: it keeps working, and the phone asks for the new one once a visit, with Later
-// back to the chats
-function showRenewal() {
-  showPairing(RENEW)
-  byId('pairLater').hidden = false
-}
-
-// the pairing lines: the code entered differs from the Mac's, the ask for the six digits, the pause after too many
-// wrong codes, and the camera turned off for Uselim
+// the pairing lines: the code entered differs from the Mac's, digits spent or past their minutes, this phone removed
+// on the Mac, the pause after too many wrong codes, and the camera turned off for Uselim
 const PAIR_AGAIN = 'Check the code in Pair a phone… on the Mac and enter it again.'
-const RENEW = 'Pairing now takes a 6-digit code.'
+const SPENT = 'Each code pairs one phone within ten minutes. Pair a phone… on the Mac shows a fresh one.'
+const REMOVED = 'This phone was removed on the Mac. Pair it again with a fresh code from Pair a phone…'
 const PAUSED = at => `Too many codes tried. The Mac takes the next one at ${at}.`
 const CAMERA_OFF = 'The camera is off for Uselim: turn it on in Settings, or type the six digits.'
 
-// the six digits taken, typed or scanned: kept on the phone, and the chats open
-function takeCode(code) {
-  pairing = code
+let isTrading = false
+
+// digits from Pair a phone, typed or scanned, or the lasting code from before: traded once for this phone's own key,
+// and the chats open
+async function pairWith(code) {
+  if (isTrading) return
+  isTrading = true
   try {
-    localStorage.setItem(PAIRING, pairing)
-  } catch {
-    // kept for this visit alone
+    const response = await fetch('/api/pair', { method: 'POST', headers: { 'X-Uselim': '1', 'X-Uselim-Key': code } })
+    if (response.ok) {
+      keep((await response.json()).token)
+      if (isUnpaired) {
+        isUnpaired = false
+        byId('pair').hidden = true
+        openView()
+      }
+      return
+    }
+    if (response.status === 429) {
+      const wait = (await response.json().catch(() => ({}))).wait ?? 60
+      const at = new Date(Date.now() + wait * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      return showPairing(PAUSED(at))
+    }
+    // digits spent or past their minutes, or a code the Mac knows nothing of
+    const reason = (await response.json().catch(() => ({}))).reason
+    if (code === pairing) keep('')
+    showPairing(reason === 'spent' ? SPENT : PAIR_AGAIN)
+  } catch (error) {
+    // the Mac out of reach: the code stays for the next try
+    if (isUnpaired) byId('pairNote').textContent = `Pairing failed: ${error.message}`
+  } finally {
+    isTrading = false
   }
-  isUnpaired = false
-  byId('pair').hidden = true
-  openView()
+}
+
+function takeCode(code) {
+  pairWith(code)
 }
 
 byId('pairForm').addEventListener('submit', event => {
@@ -350,6 +384,8 @@ async function startScan() {
   const video = byId('scanVideo')
   video.srcObject = scanStream
   byId('scanner').hidden = false
+  // VoiceOver moves into the camera's screen, onto its way back
+  byId('scanCancel').focus()
   await video.play().catch(() => {})
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d', { willReadFrequently: true })
@@ -381,6 +417,7 @@ function stopScan() {
   scanStream = null
   byId('scanVideo').srcObject = null
   byId('scanner').hidden = true
+  if (!byId('pair').hidden) byId('pairScan').focus()
 }
 
 byId('pairScan').addEventListener('click', startScan)
@@ -388,12 +425,6 @@ byId('scanCancel').addEventListener('click', stopScan)
 // the camera closes when the app leaves the screen
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden' && scanStream) stopScan()
-})
-
-byId('pairLater').addEventListener('click', () => {
-  isUnpaired = false
-  byId('pair').hidden = true
-  openView()
 })
 
 function el(tag, className = '', text) {
@@ -490,7 +521,24 @@ function ring(limit, isStale) {
   figure.append(el('b', isStale ? 'stale' : color, `${limit.percent}%`))
   node.append(figure, el('div', 'label', shortName(limit.name)))
   if (limit.resets) node.append(el('div', 'left', left(limit.resets)))
+  // VoiceOver reads the ring as one line: "Session, 42%, 2 hours 23 minutes left"
+  node.setAttribute('role', 'img')
+  node.setAttribute('aria-label', [shortName(limit.name), `${limit.percent}%`, limit.resets && spokenLeft(limit.resets)].filter(Boolean).join(', '))
   return node
+}
+
+// the time to a reset in words: "2 hours 23 minutes left", or past a day the reset itself, "resets Friday 04:59"
+function spokenLeft(resets) {
+  const minutes = Math.max(0, Math.round((resets - state.now) / 60000))
+  if (minutes >= 1440) {
+    const at = new Date(resets)
+    const day = at.toLocaleDateString(undefined, { weekday: 'long' })
+    return `resets ${day} ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+  }
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  const unit = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+  return `${hours > 0 ? `${unit(hours, 'hour')} ` : ''}${unit(rest, 'minute')} left`
 }
 
 // the bell's count: notices yet to show on the Notifications screen
@@ -536,16 +584,17 @@ function closeSwipe() {
   swipedOpen = null
 }
 
-// a row with its actions behind it
+// a row with its actions behind it; VoiceOver reaches them after the row, each naming its chat
 function swipeRow(row, session, title) {
   const box = el('div', 'swipe')
   const actions = el('div', 'swipe-actions')
-  actions.append(
-    button(RENAME, 'act', () => openRenamer(session, title)),
-    button(DELETE, 'act danger', () => hideChat(session)),
-  )
+  const rename = button(RENAME, 'act', () => openRenamer(session, title))
+  const remove = button(DELETE, 'act danger', () => hideChat(session))
+  rename.setAttribute('aria-label', `${RENAME} ${title}`)
+  remove.setAttribute('aria-label', `${DELETE} ${title}`)
+  actions.append(rename, remove)
   row.classList.add('swipe-row')
-  box.append(actions, row)
+  box.append(row, actions)
   return box
 }
 
@@ -684,6 +733,8 @@ function drawChats() {
     if (c.state === 'working') inPhase(dot)
     const grow = el('div', 'grow')
     grow.append(el('div', 'title', c.title), el('div', 'sub', c.sub))
+    // the pulsing dot's meaning, for VoiceOver
+    if (c.state === 'working') grow.append(el('span', 'vh', 'Working'))
     // the time or the ask on top, the model and effort beneath
     const side = el('div', 'side-stack')
     side.append(c.ask ? el('span', 'side attention', c.ask) : el('span', 'side', c.side))
@@ -794,6 +845,8 @@ function noticeRow(n, isToday, now) {
   const grow = el('div', 'grow')
   grow.append(top, el('div', 'body', n.body ?? ''))
   row.append(icon, grow)
+  // the blue dot's meaning, for VoiceOver
+  if (!n.read) row.prepend(el('span', 'vh', 'Unread'))
   return row
 }
 
@@ -1239,7 +1292,9 @@ function summaryRow(m) {
     if (opened.has(id)) opened.delete(id)
     else opened.add(id)
     node.classList.toggle('open', opened.has(id))
+    line.setAttribute('aria-expanded', String(opened.has(id)))
   })
+  line.setAttribute('aria-expanded', String(opened.has(id)))
   const body = el('div', 'details msg assistant')
   body.innerHTML = markdown(m.text)
   node.append(line, body)
@@ -1498,8 +1553,10 @@ function toolRow(m) {
     if (opened.has(m.id)) opened.delete(m.id)
     else opened.add(m.id)
     node.classList.toggle('open', opened.has(m.id))
+    line.setAttribute('aria-expanded', String(opened.has(m.id)))
     if (opened.has(m.id)) loadCall(m, draw)
   })
+  line.setAttribute('aria-expanded', String(opened.has(m.id)))
   const dot = el('span', `dot ${m.state === 'running' ? 'working' : m.state}`)
   if (m.state === 'running') inPhase(dot)
   line.append(dot, el('span', 'name', toolName(m.tool)))
@@ -1590,7 +1647,8 @@ function drawChat() {
     if (isWorking) rows.push(keyedRow(['progress', tools, isRunning, stopAt > 0], () => progress(tools, isRunning)))
     placeRows(box, rows)
     // new rows glide into view for a reader at the end; one reading higher up stays where they are
-    if (isAtEnd) box.scrollTo({ top: box.scrollHeight, behavior: isFirst ? 'auto' : 'smooth' })
+    const isStill = isFirst || matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (isAtEnd) box.scrollTo({ top: box.scrollHeight, behavior: isStill ? 'auto' : 'smooth' })
   }
   drawAsk(chat.ask)
   drawSwitch()
@@ -1731,7 +1789,13 @@ function drawAsk(ask) {
   showFold(folded.has(ask.id))
   if (isPermission) {
     body.append(el('div', 'question', ask.tool || 'Tool'))
-    if (ask.detail) body.append(el('div', 'detail', ask.detail))
+    // the call in full, drawn as its tool row draws it once opened: an edit's diff, a written file, a command
+    if (ask.detail) {
+      const view = el('div', 'ask-call')
+      view.innerHTML = callView({ tool: ask.tool, detail: ask.detail })
+      body.append(view)
+    }
+    if (ask.more > 0) body.append(el('div', 'ask-more', `${ask.more.toLocaleString()} more characters show on the Mac`))
     const actions = el('div', 'actions')
     actions.append(
       button('Deny', '', () => answer({ allow: false })),
@@ -1758,6 +1822,12 @@ function drawAsk(ask) {
     const options = []
     const other = el('input', 'other')
     other.placeholder = 'Other answer'
+    other.setAttribute('aria-label', 'Other answer')
+    // a pick shows in blue, and VoiceOver reads it as selected
+    const mark = (each, isPicked) => {
+      each.classList.toggle('picked', isPicked)
+      each.setAttribute('aria-pressed', String(isPicked))
+    }
     for (const option of q.options ?? []) {
       const node = button('', 'option', () => {
         const picked = new Set(drafts[q.question]?.labels ?? [])
@@ -1770,11 +1840,12 @@ function drawAsk(ask) {
         }
         drafts[q.question] = { labels: [...picked], other: '' }
         other.value = ''
-        for (const [each, label] of options) each.classList.toggle('picked', picked.has(label))
+        for (const [each, label] of options) mark(each, picked.has(label))
         ready()
       })
       node.append(el('div', 'label', option.label))
       if (option.description) node.append(el('div', 'about', option.description))
+      node.setAttribute('aria-pressed', 'false')
       options.push([node, option.label])
       body.append(node)
     }
@@ -1782,7 +1853,7 @@ function drawAsk(ask) {
       const typed = other.value.trim()
       if (typed) {
         drafts[q.question] = { labels: [], other: typed }
-        for (const [each] of options) each.classList.remove('picked')
+        for (const [each] of options) mark(each, false)
       } else {
         delete drafts[q.question]
       }
@@ -1819,6 +1890,8 @@ async function answer(body) {
     await call('/api/answer', { session, ask: askId, ...body })
     box.replaceChildren(el('div', 'kind', 'Answer sent'))
   } catch (error) {
+    // the ask moved on meanwhile: answered at the Mac, its turn over, or a newer ask in its place
+    if (error.message === 'HTTP 409') return box.replaceChildren(el('div', 'kind', 'Settled on the Mac'))
     box.append(el('div', 'sub', `Sending failed: ${error.message}`))
     for (const each of buttons) each.disabled = false
   }
@@ -2042,10 +2115,16 @@ byId('settingsBack').addEventListener('click', () => {
 byId('back').addEventListener('click', () => {
   location.hash = ''
 })
+// the sheet takes VoiceOver to its Done, and gives it back to the pill as it closes
 byId('modelPill').addEventListener('click', () => {
   byId('switcher').hidden = false
   drawSwitcher()
+  byId('switcherDone').focus()
 })
+function closeSwitcher() {
+  byId('switcher').hidden = true
+  byId('modelPill').focus()
+}
 byId('renameForm').addEventListener('submit', event => {
   event.preventDefault()
   saveName()
@@ -2054,12 +2133,10 @@ byId('renameCancel').addEventListener('click', closeRenamer)
 byId('renamer').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeRenamer()
 })
-byId('switcherDone').addEventListener('click', () => {
-  byId('switcher').hidden = true
-})
+byId('switcherDone').addEventListener('click', closeSwitcher)
 // a tap on the dimmed chat around the sheet closes it too
 byId('switcher').addEventListener('click', event => {
-  if (event.target === event.currentTarget) byId('switcher').hidden = true
+  if (event.target === event.currentTarget) closeSwitcher()
 })
 // the slider follows the finger stop by stop and goes to the chat on release; the polls leave it alone meanwhile
 const effortInput = byId('effort')
@@ -2135,6 +2212,7 @@ byId('viewer').addEventListener('pointerup', liftFinger)
 byId('viewer').addEventListener('pointercancel', liftFinger)
 // Safari's own pinch events would zoom the page under the viewer
 byId('viewer').addEventListener('gesturestart', event => event.preventDefault())
+byId('viewerClose').addEventListener('click', closeViewer)
 window.addEventListener('hashchange', openView)
 
 async function refresh() {
@@ -2206,5 +2284,13 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refresh()
 })
-if (pairing && !isSixDigits(pairing)) showRenewal()
-else openView()
+// a phone with its own key opens the chats; one holding the lasting code opens them too and trades it by itself; one
+// yet to pair shows the pairing field, the QR link's digits in it
+if (isSixDigits(pairing)) {
+  openView()
+  pairWith(pairing)
+} else if (pairing) openView()
+else {
+  showPairing()
+  if (linkedCode) byId('pairCode').value = `${linkedCode.slice(0, 3)} ${linkedCode.slice(3)}`
+}

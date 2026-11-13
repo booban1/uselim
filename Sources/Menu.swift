@@ -146,6 +146,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
             relay.limits = { [weak self] in (self?.limits ?? [], self?.fetched) }
             alerts.onLimit = { [weak relay] title, body in relay?.limitNotice(title, body) }
             phone.onChange = { [weak self] in self?.fillPhone() }
+            phone.onName = { [weak relay] name in relay?.tailnetName = name }
+            phone.onLogin = { [weak relay] login in relay?.tailnetLogin = login }
             updater.onChange = { [weak self] in self?.fillUpdate() }
             updater.check()
             updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
@@ -212,6 +214,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch found {
         case .found(let l):
             login = l
+            if let plan = l.plan { UserDefaults.standard.set(plan, forKey: "plan") }
             fetchUsage(l) { result in
                 DispatchQueue.main.async {
                     self.reading = false
@@ -380,6 +383,10 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let dark = item.button?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let dot = !waiting.isEmpty
         strip.update(limits: limits, waiting: waiting, stale: stale)
+        // VoiceOver reads the item by name with its figures, which the drawn picture carries as pixels alone
+        let spoken = limits.map { "\($0.name) \($0.percent)%" } + (waiting.isEmpty ? [] : ["\(waiting.count) waiting on you"])
+        item.button?.setAccessibilityLabel("Uselim")
+        item.button?.setAccessibilityValue(spoken.isEmpty ? nil : spoken.joined(separator: ", "))
         guard !limits.isEmpty else {
             let word: String
             switch state {
@@ -444,8 +451,16 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func fillMenu() {
-        // the account line names the plan alone ("Claude Team"), the address left out of every screenshot and screen share
-        let plan = login?.plan.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+        // the account line names the plan alone ("Claude Team"), the address left out of every screenshot and screen share;
+        // at launch the plan from the last login read stands in until the pacing lets the first read through, and a
+        // sign-in or keychain line takes its place
+        let saved: String? = {
+            switch state {
+            case .waiting, .limits, .failed, .paused: return UserDefaults.standard.string(forKey: "plan")
+            default: return nil
+            }
+        }()
+        let plan = (login?.plan ?? saved).map { $0.prefix(1).uppercased() + $0.dropFirst() }
         accountItem.title = plan.map { "Claude \($0)" } ?? ""
         accountItem.isHidden = accountItem.title.isEmpty
         // a failed read stays quiet while the figures are fresh (the status line keeps them so); the line and its reload
@@ -542,7 +557,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func openPair() {
         pairWindow?.close()
-        pairWindow = PairWindow(address: "https://\(phone.dnsName)", code: relay.pairingCode)
+        pairWindow = PairWindow(address: "https://\(phone.dnsName)", relay: relay)
         NSApp.activate(ignoringOtherApps: true)
         pairWindow?.showWindow(nil)
         pairWindow?.window?.makeKeyAndOrderFront(nil)

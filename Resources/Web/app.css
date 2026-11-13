@@ -105,6 +105,8 @@ html, body {
 
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 [hidden] { display: none !important; }
+/* words for VoiceOver alone: read aloud, kept off the screen */
+.vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* the loading bar informs only: orange while loading, grey while the Mac is out of reach */
 .bar {
@@ -134,10 +136,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .large { display: flex; align-items: center; gap: 10px; padding: 12px 16px 4px 20px; }
 .app-icon { flex: none; width: 30px; height: 30px; border-radius: 8px; }
 .large h1 { flex: 1; margin: 0; font-size: 20px; line-height: 26px; font-weight: 700; letter-spacing: 0.37px; }
-.bell, .compose { position: relative; flex: none; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: var(--tint); }
+/* a 44 pt target drawn in a 36 pt place: the margin gives back what the size adds */
+.bell, .compose { position: relative; flex: none; width: 44px; height: 44px; margin: -4px; display: flex; align-items: center; justify-content: center; color: var(--tint); }
 .badge {
   position: absolute;
-  top: 2px; right: 0;
+  top: 6px; right: 4px;
   min-width: 17px;
   height: 17px;
   padding: 0 5px;
@@ -150,7 +153,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   align-items: center;
   justify-content: center;
 }
-.gear { flex: none; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; color: var(--tint); }
+.gear { flex: none; width: 44px; height: 44px; margin: -5px; display: flex; align-items: center; justify-content: center; color: var(--tint); }
 .nav .gear { justify-self: end; }
 
 .group { margin: 18px 16px 0; }
@@ -164,6 +167,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 .foot { margin: 6px 16px 0; font-size: 10px; color: var(--sub); }
 .foot:empty { display: none; }
+/* the pairing note stays in place while empty, so VoiceOver reads each line as it arrives; its margin folds into the
+   buttons' */
+#pairNote:empty { display: block; }
 
 .card { background: var(--card); border-radius: 10px; overflow: hidden; }
 
@@ -211,14 +217,14 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .scan-frame i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 14px; }
 .scan-hint { position: absolute; left: 24px; right: 24px; top: calc(env(safe-area-inset-top) + 40px); text-align: center; color: #fff; font-size: 16px; font-weight: 600; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
 .scan-cancel { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 36px); transform: translateX(-50%); padding: 12px 34px; border-radius: 22px; background: rgba(255, 255, 255, 0.18); color: #fff; font-size: 16px; font-weight: 600; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-#pairNote { color: var(--orange); }
+#pairNote { color: var(--orange-text); }
 /* the rename sheet: the name in a field on a card, Cancel and Save beneath */
 .rename-input { width: 100%; padding: 12px 16px; font: inherit; font-size: 15px; color: var(--text); background: transparent; border: 0; outline: none; }
 .sheet-actions { margin: 14px 16px 0; }
 .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side { font-size: 11px; color: var(--sub); white-space: nowrap; }
-.side.attention { color: var(--orange); font-weight: 600; }
+.side.attention { color: var(--orange-text); font-weight: 600; }
 /* a chat row's right edge: its time or ask, and beneath it the model and effort it runs on */
 .side-stack { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .side-stack .meta { font-size: 10px; color: var(--sub); white-space: nowrap; }
@@ -244,13 +250,13 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .ring .figure b.stale { color: var(--sub); }
 .ring .label { margin-top: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ring .left { font-size: 10.5px; color: var(--sub); }
-.warning { color: var(--orange); }
-.critical { color: var(--red); }
+.warning { color: var(--orange-text); }
+.critical { color: var(--red-text); }
 
 /* the Notifications screen: a card per day, Clear beside its name; a plain grey mark per kind, blue while unread */
 #noticeDays { padding-bottom: 24px; }
 .group h2.clearable { display: flex; justify-content: space-between; align-items: baseline; }
-.clear { color: var(--tint); text-transform: none; font-size: 11px; font-weight: 600; letter-spacing: 0; }
+.clear { padding: 8px 12px; margin: -8px -12px; color: var(--tint); text-transform: none; font-size: 11px; font-weight: 600; letter-spacing: 0; }
 .notice { align-items: flex-start; padding: 11px 16px; }
 .notice-icon {
   position: relative;
@@ -298,6 +304,14 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   font-weight: 600;
 }
 .pill.strong { background: var(--tint); color: #fff; }
+/* small controls take taps a few points past their drawn edge, drawn as before */
+.pill, .earlier, .model-pill, .ask-head, .attach, .send { position: relative; }
+.pill::after, .earlier::after, .model-pill::after, .ask-head::after, .attach::after, .send::after { content: ""; position: absolute; }
+.pill::after { inset: -10px -6px; }
+.earlier::after { inset: -9px 0; }
+.model-pill::after { inset: -8px -6px; }
+.ask-head::after { inset: -12px -14px -4px; }
+.attach::after, .send::after { inset: -5px; }
 
 /* settings: a switch per kind of notice */
 .switch { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 44px; height: 27px; margin: 0; border-radius: 14px; background: var(--fill); transition: background 0.2s; cursor: pointer; }
@@ -319,7 +333,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   background: var(--bg);
   border-bottom: 0.5px solid var(--line);
 }
-.back { display: flex; align-items: center; gap: 4px; color: var(--tint); padding: 6px 4px; justify-self: start; }
+.back { display: flex; align-items: center; gap: 4px; color: var(--tint); padding: 12px 4px; margin: -6px 0; justify-self: start; }
 .heading { text-align: center; min-width: 0; max-width: 62vw; }
 .heading .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .heading .began { font-size: 10px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -377,7 +391,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .msg.assistant .code code { line-height: 1.5; }
 .code-head { display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 4px 0 12px; font: 10px ui-monospace, "SF Mono", Menlo, monospace; color: var(--sub); }
 .copy { flex: none; width: 32px; height: 28px; display: flex; align-items: center; justify-content: center; color: var(--sub); }
-.copy.done { color: var(--green); }
+/* the copied state keeps the button's own box: .done further down pads the sheet's Done */
+.copy.done { color: var(--green); padding: 0; }
 .copy-mask { width: 13px; height: 14px; -webkit-mask-image: url(/copy.png); mask-image: url(/copy.png); }
 .copy.done .copy-mask { width: 13px; height: 12px; -webkit-mask-image: url(/copied.png); mask-image: url(/copied.png); }
 /* highlight.js's spans in VS Code's colours, scope by scope as the editor paints them */
@@ -415,7 +430,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .tool .target { flex: 1; min-width: 0; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; }
 .dot.done { background: var(--green); }
 .dot.error { background: var(--red); }
-.tool.error .name { color: var(--red); }
+.tool.error .name { color: var(--red-text); }
 .tool .details { display: none; margin: 2px 0 6px 15px; }
 .tool.open .details { display: block; }
 .tool pre { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: var(--code-block); font: 10.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; }
@@ -445,7 +460,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .lines .mk.removed { color: var(--diff-minus); }
 .lines .more { color: var(--sub); font-style: italic; }
 .editor.output .tx { color: var(--sub); }
-.editor.output.error .tx { color: var(--red); }
+.editor.output.error .tx { color: var(--red-text); }
 
 /* the top of a chat: a page from before what shows */
 .earlier { display: block; margin: 0 auto 16px; padding: 6px 14px; border-radius: 999px; background: var(--fill); color: var(--tint); font-size: 11px; font-weight: 600; }
@@ -482,7 +497,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   max-height: 55vh;
   overflow-y: auto;
 }
-.ask .kind { font-size: 10px; font-weight: 600; color: var(--orange); text-transform: uppercase; }
+.ask .kind { font-size: 10px; font-weight: 600; color: var(--orange-text); text-transform: uppercase; }
 /* the card's top row folds it: folded, the row alone stays, with the ask's first line, and the chat above
    takes the room; the chevron turns as it folds */
 .ask-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 20px; text-align: left; }
@@ -494,7 +509,10 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .ask.folded .ask-body { display: none; }
 .ask.folded .fold-mask { transform: rotate(180deg); }
 .ask .question { font-weight: 600; margin: 4px 0 10px; }
-.ask .detail { font: 11px ui-monospace, "SF Mono", Menlo, monospace; background: var(--code); border-radius: 8px; padding: 8px 10px; margin: 6px 0 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* a permission's call, in the tool rows' editor views; the count of what the card leaves to the Mac beneath */
+.ask .ask-call { margin: 6px 0 12px; }
+.ask .ask-call .editor { margin: 0; background: var(--code); }
+.ask .ask-more { margin: -6px 0 12px; font-size: 11px; color: var(--sub); }
 .option {
   display: block;
   width: 100%;
@@ -578,6 +596,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .sheet .card { background: var(--sheet-card); }
 .sheet-head { display: flex; justify-content: flex-end; padding: 0 16px; }
 .done { padding: 8px 0 0; color: var(--tint); font-weight: 600; }
+/* the sheet's Done alone: a taller target at the same place (.done also marks a finished tool's dot) */
+.sheet-head .done { padding: 14px 12px 6px; margin: -6px -12px; }
 .sheet .group { margin-top: 10px; }
 .choice .grow { font-size: 13px; }
 .check-mask { width: 13px; height: 12px; color: var(--tint); -webkit-mask-image: url(/copied.png); mask-image: url(/copied.png); }
@@ -610,3 +630,25 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .stops { position: relative; height: 16px; margin-top: 4px; --thumb: 28px; }
 .stops span { top: 0; transform: translateX(-50%); font-size: 10.5px; color: var(--sub); white-space: nowrap; }
 .stops span.on { color: var(--text); font-weight: 600; }
+
+/* text in orange or red: Apple's darker shades on light screens, so a note or a figure reads at 4.5:1 and up; the
+   dots, rings and fills keep the bright ones */
+:root { --orange-text: #c93400; --red-text: #d70015; }
+@media (prefers-color-scheme: dark) {
+  :root { --orange-text: var(--orange); --red-text: var(--red); }
+}
+
+/* Increase Contrast in iOS Settings: Apple's accessible shades, light and dark */
+@media (prefers-contrast: more) {
+  :root { --tint: #0040dd; --orange: #c93400; --red: #d70015; --green: #248a3d; --sub: #545456; --line: #8e8e93; }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root { --tint: #409cff; --orange: #ffb340; --red: #ff6961; --green: #30db5b; --sub: #aeaeb2; --line: #636366;
+    --orange-text: #ffb340; --red-text: #ff6961; }
+}
+
+/* Reduce Motion in iOS Settings: the busy dot holds still and the sheets and rows move at once */
+@media (prefers-reduced-motion: reduce) {
+  .dot.working { animation: none; }
+  *, *::before, *::after { transition-duration: 0s !important; }
+}

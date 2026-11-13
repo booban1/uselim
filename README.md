@@ -49,15 +49,52 @@ Intel or Apple silicon Mac on macOS 13 or later.
 1. On the iPhone, install Tailscale and sign in; the free Personal plan covers it.
 2. In Uselim's menu, turn on **Phone**. The line beneath it takes the Mac through Tailscale a click at a time: its
    installer when the Mac needs one, signing in with the iPhone's account, then Serve and HTTPS for Uselim's relay.
-3. Choose **Pair a phone…**: a QR code and a six-digit code, with a button that copies the code.
+3. Choose **Pair a phone…**: a QR code and six digits, with a button that copies them. The digits pair one phone
+   within ten minutes, and fresh ones follow while the window stays open.
 4. On the iPhone, scan the QR code with the Camera to open Uselim in Safari, then tap Share, then Add to Home Screen.
 5. Open Uselim from the Home Screen, tap the scan icon in its code field and point it at Pair a phone…, or type the
    six digits; then turn notifications on in its Notification Center screen.
 
-Every request carries a key: the phone its pairing code, and Uselim's own parts on the Mac a key only your account
-can read, so other apps on the Mac reach the page's files alone. A device that sends five wrong codes waits a minute
-before its next one, doubling up to an hour, and devices yet to pair share one such count. Notifications go through
-Apple's push service alone, to the phones paired with the current code.
+Pairing gives each phone its own key, which the Mac keeps as a hash beside the phone's name; Pair a phone… lists the
+phones, each with Remove, which ends its key and its notifications. Every request carries a key: the phone its own,
+and Uselim's own parts on the Mac a key only your account can read, so other apps on the Mac reach the page's files
+alone. Requests from the phone carry the Mac's own name on the tailnet, and Tailscale's login, where it names one, is
+the Mac's. A device that sends five wrong keys waits a minute before its next one, doubling up to an hour, and devices
+yet to pair share one such count. A request's checks run before any of its body is read. Notifications go through
+Apple's push service alone, to the paired phones.
+
+## What Uselim asks for, and why
+
+Each ask comes once: what it serves, and what carries on when you decline it.
+
+### On the Mac
+
+- **Notifications**, with Uselim's first notice. They carry a limit crossing 60, 80 and 100%, the reset of a limit
+  that warned, and a chat stopping to ask you something. Declined, the menu still shows every limit and every waiting
+  chat, and offers Turn on notifications…, which opens the setting to allow them.
+- **Open at login**, a note from macOS that a login item was added. Uselim starts with the Mac, so the readout is on
+  the bar from the start. To start Uselim yourself instead, turn Open at login off in its menu.
+- **VS Code's question before a link opens a chat**, the first time. Uselim opens chats through such a link for the
+  phone's New chat, for a message to a closed chat, and to bring forward a chat whose phone message waits to go in.
+  Tick the box to skip the question from then on. Declined, a message to a closed chat waits until you open that chat,
+  and New chat keeps your first message on the phone.
+- **The hooks and the plugin**, should Claude Code ask about them at the next chat start. The hooks tell Uselim which
+  chat waits on you and carry permission asks to the phone; the plugin carries the phone's messages into each chat,
+  and its replies and questions back. The limits in the menu bar work either way.
+- **Tailscale**, with Phone on: its installer asks for your admin password, macOS for approval of Tailscale's VPN
+  configuration, and Tailscale for a sign-in. Tailscale carries the iPhone to the Mac over your own tailnet. Declined,
+  the phone side waits, and the limits and the menu bar work as before.
+- **Claude's usage figures** arrive with zero prompts.
+
+### On the iPhone
+
+- **Tailscale's VPN configuration**, when you first turn Tailscale on. The phone reaches the Mac's relay through it
+  alone.
+- **The camera**, once, for the scan icon on the pairing screen, to read the QR code in the Mac's Pair a phone…
+  window. Declined, the six digits typed in pair the phone the same way.
+- **Notifications**, when you turn them on in the app's Notification Center screen. Replies, questions, permissions
+  and limits arrive as notices, each kind with its own switch. Declined, every notice still lists under the bell, with
+  a dot until you open it.
 
 ## Remove
 

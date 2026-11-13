@@ -64,7 +64,7 @@ type Switch = { model?: string; effort?: string; at?: number }
 type Inbox = { messages?: Message[] }
 type Ask =
   | { kind: 'question'; id: string; questions: unknown }
-  | { kind: 'permission'; id: string; tool: string; detail: string }
+  | { kind: 'permission'; id: string; tool: string; detail: string; more?: number }
 type Answer = { answers?: Record<string, string>; allow?: boolean; isStopped?: true }
 type Item =
   | { role: 'user'; text: string; images?: string[] }
@@ -123,11 +123,48 @@ const oneLine = (text: string) => clean(text).replace(/\s+/g, ' ')
 
 const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).at(-1) ?? cwd
 
-// the tool's own target where it has one: a command, a file, an address
-const describe = (input: unknown) => {
+// a permission's call in full, as Uselim's --permission details it, so Allow on the phone answers for what it reads: a
+// command, a written file's path and content, an edit's path and its lines marked - and +, a notebook cell's new
+// source, a search with its folder, an agent's prompt, any other input as JSON. The card holds the first CARD_LONGEST
+// characters and counts the rest, which the Mac's dialog shows.
+const CARD_LONGEST = 100_000
+
+function cardDetail(tool: string, input: unknown) {
   const fields = (input ?? {}) as Record<string, unknown>
-  const named = fields.command ?? fields.file_path ?? fields.url ?? fields.path ?? fields.pattern
-  return typeof named === 'string' ? named : JSON.stringify(fields).slice(0, 400)
+  const field = (key: string) => (typeof fields[key] === 'string' ? (fields[key] as string) : '')
+  const marked = (text: string, mark: string) => text.split('\n').map(line => `${mark} ${line}`).join('\n')
+  const whole = (() => {
+    switch (tool) {
+      case 'Bash':
+        return field('command')
+      case 'Read':
+        return field('file_path')
+      case 'Write':
+        return `${field('file_path')}\n\n${field('content')}`
+      case 'Edit':
+        return `${field('file_path')}\n\n${marked(field('old_string'), '-')}\n${marked(field('new_string'), '+')}`
+      case 'NotebookEdit': {
+        // the edit's kind first, so a cell's deletion reads as one
+        const kind = field('edit_mode') || 'replace'
+        const cell = [kind, 'cell', field('cell_id')].filter(Boolean).join(' ')
+        return `${field('notebook_path')}\n\n${cell}${kind === 'delete' ? '' : `\n${field('new_source')}`}`
+      }
+      case 'Grep':
+      case 'Glob':
+        return [field('pattern'), field('path')].filter(Boolean).join('\nin ')
+      case 'WebFetch':
+        return field('url')
+      case 'WebSearch':
+        return field('query')
+      case 'Agent':
+      case 'Task':
+        return field('prompt')
+      default:
+        return JSON.stringify(fields, null, 2)
+    }
+  })()
+  const detail = whole.slice(0, CARD_LONGEST)
+  return { detail, more: whole.length - detail.length }
 }
 
 async function save($: EngineInterface) {
@@ -578,12 +615,15 @@ async function waitFor(
   try {
     const always = options.always ? '&always=1' : ''
     const url = `${SERVER}/relay/wait?session=${encodeURIComponent(chat.session)}&ask=${encodeURIComponent(ask.id)}${always}`
-    // the server holds each wait 20 s before "waiting", which paces the rounds
+    // the server holds each wait 20 s before "waiting", which paces the rounds; a "waiting" back within 10 s comes
+    // from something other than Uselim on the port, and counts toward 180 rounds, a question's cap alone
     const rounds = options.always ? Number.POSITIVE_INFINITY : 180
-    for (let round = 0; round < rounds && !signal.aborted && !options.isDone?.(); round += 1) {
+    let quick = 0
+    for (let round = 0; round < rounds && quick < 180 && !signal.aborted && !options.isDone?.(); round += 1) {
       // the local key, once Uselim has made it; an older Uselim takes the header alone
       const key = (await $.fs.read(`${dir}/local.key`).catch(() => '')).trim()
       const headers = key ? { ...HEADERS, 'X-Uselim-Key': key } : HEADERS
+      const sent = await $.clock.now()
       const reply = await $.http.fetch(url, { headers }).catch(() => undefined)
       if (!reply?.ok) return undefined
       const body = JSON.parse(reply.text) as { state?: string; answer?: Answer }
@@ -593,6 +633,7 @@ async function waitFor(
         return { isStopped: true }
       }
       if (body.state !== 'waiting') return undefined
+      if ((await $.clock.now()) - sent < 10_000) quick += 1
     }
     return undefined
   } finally {
@@ -768,7 +809,8 @@ export const register: Register = on => {
   on('classic.PermissionRequest', async ($, e, next) => {
     if (!(await isAway($))) return next(e)
     const id = `p${await $.clock.now()}`
-    const ask: Ask = { kind: 'permission', id, tool: e.tool_name, detail: describe(e.tool_input) }
+    const { detail, more } = cardDetail(e.tool_name, e.tool_input)
+    const ask: Ask = { kind: 'permission', id, tool: e.tool_name, detail, ...(more > 0 ? { more } : {}) }
     const answer = await waitFor($, ask, next.signal)
     if (answer?.isStopped || next.signal.aborted) {
       return { decision: { behavior: 'deny' as const, message: 'The turn was stopped.' } }
