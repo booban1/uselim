@@ -5,6 +5,13 @@ import AppKit
 // takes one status line update on stdin, keeps its figures and prints the line; "--permission" takes one permission
 // request, puts it on the phone and prints the phone's answer, unless the Mac's dialog answers first.
 
+#if RELAY_TEST
+// a test build runs the relay alone, in the folder and on the port Tools/test-relay.sh gives it
+let testRelay = Relay()
+testRelay.start()
+RunLoop.main.run()
+#endif
+
 // "--setup", "--remove", "--state" and "--quit": setup and removal with zero windows, in Setup.swift
 if CommandLine.arguments.contains("--setup") { runSetup() }
 if CommandLine.arguments.contains("--remove") { runRemove() }

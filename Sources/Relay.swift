@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import IOKit
 
 // The phone relay: Uselim's side of the Uselim mod that runs in every Claude Code chat. Both share
@@ -10,10 +11,25 @@ import IOKit
 //
 // The server listens on 127.0.0.1:47472 alone; Tailscale Serve brings it to the phone over the tailnet, with HTTPS.
 // Every /api and /relay request carries the X-Uselim header, which a page on another site can add only through a
-// CORS preflight the server turns away, and names a Host the server knows, which turns away DNS rebinding.
+// CORS preflight the server turns away, and names a Host the server knows, which turns away DNS rebinding. Every one
+// carries a key as well: the phone's pairing code, or from the Mac itself relay/local.key, which this user alone can
+// read; the rest of the Mac (an app in its sandbox, a browser extension) reaches the page's own files alone.
 
+#if RELAY_TEST
+// a test build (Tools/test-relay.sh) keeps to a folder and a port of its own, the installed app's left as they are
+let relayDir = ProcessInfo.processInfo.environment["USELIM_TEST_RELAY"] ?? NSTemporaryDirectory() + "uselim-relay-test"
+let relayPort = UInt16(ProcessInfo.processInfo.environment["USELIM_TEST_PORT"] ?? "") ?? 47_572
+#else
 let relayDir = NSHomeDirectory() + "/Library/Application Support/Uselim/relay"
 let relayPort: UInt16 = 47472
+#endif
+
+// the key the Mac's own callers send, the mod's waits and --permission: 32 random bytes in hex, made by the relay
+func localRelayKey() -> String? {
+    let text = ((try? String(contentsOfFile: relayDir + "/local.key", encoding: .utf8)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.count == 64 && text.allSatisfy(\.isHexDigit) ? text : nil
+}
 
 // the Mac reads as away while locked, after two idle minutes, or while the phone acted after the Mac's last input
 private let idleAway: TimeInterval = 120
@@ -88,7 +104,13 @@ final class Relay {
         let savedNotices = readJSON(relayDir + "/notices.json")
         notices = savedNotices?["notices"] as? [[String: Any]] ?? []
         noticesAt = savedNotices?["at"] as? Double ?? 0
+        localKey = makeLocalKey()
         pairingCode = readPairingCode()
+        readGuard()
+        // a subscription from before the codes' tags joins the current code; one another code stands behind leaves
+        var tags: Set<String> = [pairingTag(pairingCode)]
+        if let previousCode { tags.insert(pairingTag(previousCode)) }
+        push.keep(tags: tags, adopting: pairingTag(pairingCode))
         // what is on disk at the start counts as seen, so a restart sends only what arrives after it
         scan(sending: false)
         server = Server(port: relayPort) { [weak self] request, reply in
@@ -117,7 +139,10 @@ final class Relay {
     private var previousCode: String?
     // wrong codes per device (the phone's tailnet address, as Tailscale Serve forwards it): the distinct codes sent, so a
     // phone repeating its one stale code counts once; from the fifth, the device pauses a minute, doubling to an hour,
-    // and every code from it waits out the pause, the right one included. Tailscale stays the outer gate.
+    // and every code from it waits out the pause, the right one included. Tailscale stays the outer gate. A right code
+    // leaves the count as it stands, so the phone's own polls hand a guesser under its address zero fresh tries; the
+    // count lapses a day after its last miss. A paired device's count lives in relay/guard.json too, so a restart
+    // keeps its pause; each code is kept as its tag.
     private var misses: [String: (codes: Set<String>, until: Date, last: Date)] = [:]
 
     private func readPairingCode() -> String {
@@ -177,7 +202,7 @@ final class Relay {
 
     private func missed(_ device: String, _ given: String) {
         var entry = misses[device] ?? (codes: [], until: .distantPast, last: Date())
-        entry.codes.insert(given.uppercased().filter { $0.isLetter || $0.isNumber })
+        entry.codes.insert(pairingTag(given.uppercased().filter { $0.isLetter || $0.isNumber }))
         entry.last = Date()
         if entry.codes.count >= 5 {
             let pause = min(60 * pow(2, Double(entry.codes.count - 5)), 3600)
@@ -185,6 +210,111 @@ final class Relay {
             note("relay: \(entry.codes.count) wrong codes from \(device), paused \(Int(pause)) s")
         }
         misses[device] = entry
+        if known[device] != nil { saveGuard() }
+    }
+
+    // MARK: the local key and the guard across devices
+
+    private var localKey = ""
+    private var isOlderModNoted = false
+
+    private func makeLocalKey() -> String {
+        if let key = localRelayKey() { return key }
+        let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }.map { String(format: "%02x", $0) }.joined()
+        let path = relayDir + "/local.key"
+        FileManager.default.createFile(atPath: path, contents: Data(key.utf8), attributes: [.posixPermissions: 0o600])
+        chmod(path, 0o600)
+        note("relay: made the local key")
+        return key
+    }
+
+    // the same length and every byte compared, so the time taken stays the same wherever a wrong key differs
+    private func isLocalKey(_ given: String?) -> Bool {
+        guard let given, !localKey.isEmpty, given.utf8.count == localKey.utf8.count else { return false }
+        return zip(given.utf8, localKey.utf8).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
+    }
+
+    // a pairing code's mark on the subscriptions it brought, keyed with the local key, so push.json alone keeps the
+    // code secret
+    private func pairingTag(_ code: String) -> String {
+        let mac = HMAC<SHA256>.authenticationCode(for: Data(code.utf8), using: SymmetricKey(data: Data(localKey.utf8)))
+        return mac.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    // X-Forwarded-For names the device, and a program on the Mac can name any address in it, so the per-device count
+    // alone would let it try codes endlessly. The codes sent from devices yet to pair count together: from
+    // the tenth distinct one in a day, every such device pauses a minute, doubling to an hour, while a device that
+    // paired keeps its own count and goes on working. Both live in relay/guard.json, across restarts and updates.
+    private var known: [String: Double] = [:]
+    private var strangers: (codes: Set<String>, until: Date, last: Date) = ([], .distantPast, .distantPast)
+
+    private func readGuard() {
+        let saved = readJSON(relayDir + "/guard.json")
+        known = saved?["known"] as? [String: Double] ?? [:]
+        let count = { (record: [String: Any]) in
+            (codes: Set(record["codes"] as? [String] ?? []),
+             until: Date(timeIntervalSince1970: (record["until"] as? Double ?? 0) / 1000),
+             last: Date(timeIntervalSince1970: (record["last"] as? Double ?? 0) / 1000))
+        }
+        strangers = count(saved?["strangers"] as? [String: Any] ?? [:])
+        for (device, record) in saved?["misses"] as? [String: [String: Any]] ?? [:] where known[device] != nil {
+            misses[device] = count(record)
+        }
+    }
+
+    // the stranger count, and the paired devices' own counts beside it
+    private func saveGuard() {
+        let path = relayDir + "/guard.json"
+        let record = { (entry: (codes: Set<String>, until: Date, last: Date)) -> [String: Any] in
+            ["codes": Array(entry.codes), "until": millis(entry.until), "last": millis(entry.last)]
+        }
+        let paired = misses.filter { known[$0.key] != nil }.mapValues(record)
+        writeJSON(["known": known, "strangers": record(strangers), "misses": paired], to: path)
+        chmod(path, 0o600)
+    }
+
+    // a device that sent a right code; a request naming zero addresses ("unknown") stays a stranger
+    private func know(_ device: String) {
+        guard device != "unknown", known[device] == nil else { return }
+        known[device] = millis(Date())
+        saveGuard()
+        note("relay: \(device) paired")
+    }
+
+    // the seconds a device yet to pair still waits, while the pause across them lasts
+    private func strangerPause(_ device: String) -> Int? {
+        known[device] == nil ? strangersWait() : nil
+    }
+
+    // the seconds left in the pause across unpaired devices; a day after the last of their misses, the count starts over
+    private func strangersWait() -> Int? {
+        if !strangers.codes.isEmpty, Date().timeIntervalSince(strangers.last) > 86_400 {
+            strangers = ([], .distantPast, .distantPast)
+            saveGuard()
+            return nil
+        }
+        let left = strangers.until.timeIntervalSinceNow
+        return left > 0 ? Int(left.rounded(.up)) : nil
+    }
+
+    // a wrong code from a device yet to pair, kept as its tag: a near miss stays off the disk
+    private func strangerMissed(_ given: String) {
+        strangers.codes.insert(pairingTag(given.uppercased().filter { $0.isLetter || $0.isNumber }))
+        strangers.last = Date()
+        if strangers.codes.count >= 10 {
+            let pause = min(60 * pow(2, Double(strangers.codes.count - 10)), 3600)
+            strangers.until = Date().addingTimeInterval(pause)
+            note("relay: \(strangers.codes.count) wrong codes from unpaired devices, all paused \(Int(pause)) s")
+        }
+        saveGuard()
+    }
+
+    // an older mod's wait, sent before the local key: it passes for the ask held that moment, whose id only a reader of
+    // relay/asks knows
+    private func isLiveAsk(_ request: Request) -> Bool {
+        guard let session = request.query["session"], isSessionID(session), let ask = request.query["ask"], !ask.isEmpty,
+              let held = readJSON(relayDir + "/asks/\(session).json")?["id"] as? String else { return false }
+        return held == ask
     }
 
     // MARK: the Mac, every two seconds
@@ -560,32 +690,63 @@ final class Relay {
             }
         }
         // from the tailnet: the waits stay with the Mac's own processes, and every call carries the pairing code, checked
-        // per device with its pause (missed); the first call with the six-digit code retires the previous one
+        // per device with its pause (missed) and across unpaired devices (strangerMissed); the first call with the
+        // six-digit code retires the previous one, its phones' notifications moving to the new code
         if isRemote(request) {
             if request.path.hasPrefix("/relay/") { return reply(.text("Local only", status: 403)) }
             if request.path.hasPrefix("/api/") {
                 let from = device(request)
-                if let wait = pausedFor(from) { return reply(.json(["error": "Too many tries", "wait": wait], status: 429)) }
                 let given = request.headers["x-uselim-key"]
-                switch pairing(given) {
-                case .current:
-                    misses[from] = nil
-                    if previousCode != nil {
-                        previousCode = nil
-                        savePairing(pairingCode)
-                        note("relay: a phone paired with the six-digit code; the previous code retired")
-                    }
-                case .previous:
-                    break
-                case .blank:
-                    return reply(.text("Pairing needed", status: 401))
-                case .wrong:
+                let match = pairing(given)
+                // a blank code answers 401 at once, free and alike for every address
+                if match == .blank { return reply(.text("Pairing needed", status: 401)) }
+                if let wait = pausedFor(from) {
+                    return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
+                }
+                // a paired address's wrong code always goes into its own saved count; while the pause across unpaired
+                // devices lasts it answers 429 like theirs, so every address answers alike and every try costs
+                if match == .wrong, known[from] != nil {
                     missed(from, given ?? "")
-                    if let wait = pausedFor(from) {
+                    if let wait = pausedFor(from) ?? strangersWait() {
                         return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
                     }
                     return reply(.text("Pairing needed", status: 401))
                 }
+                if let wait = strangerPause(from) {
+                    return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
+                }
+                switch match {
+                case .current:
+                    know(from)
+                    if let previousCode {
+                        push.retag(from: pairingTag(previousCode), to: pairingTag(pairingCode))
+                        self.previousCode = nil
+                        savePairing(pairingCode)
+                        note("relay: a phone paired with the six-digit code; the previous code retired")
+                    }
+                case .previous:
+                    know(from)
+                case .blank:
+                    return reply(.text("Pairing needed", status: 401))
+                case .wrong:
+                    // a device yet to pair: its own count, and the count across them all
+                    missed(from, given ?? "")
+                    strangerMissed(given ?? "")
+                    if let wait = pausedFor(from) ?? strangerPause(from) {
+                        return reply(.json(["error": "Too many tries", "wait": wait], status: 429))
+                    }
+                    return reply(.text("Pairing needed", status: 401))
+                }
+            }
+        } else if request.path.hasPrefix("/api/") || request.path.hasPrefix("/relay/") {
+            // from the Mac itself: the local key, or an older mod's wait naming the ask held that moment
+            let isKeyed = isLocalKey(request.headers["x-uselim-key"])
+            guard isKeyed || (request.path == "/relay/wait" && isLiveAsk(request)) else {
+                return reply(.text("Key needed", status: 403))
+            }
+            if !isKeyed && !isOlderModNoted {
+                isOlderModNoted = true
+                note("relay: a chat's older mod waits on the header alone; its next start brings the key")
             }
         }
         switch (request.method, request.path) {
@@ -966,12 +1127,17 @@ final class Relay {
         return .json(["ok": true])
     }
 
+    // a phone's subscription alone, under the code it paired with, which stands behind it from then on
     private func subscribe(_ request: Request) -> Response {
+        guard isRemote(request) else { return .text("Phone only", status: 403) }
         guard let body = jsonObject(request.body), let subscription = body["subscription"] as? [String: Any] else {
             return .text("Subscription refused", status: 400)
         }
+        let code = pairing(request.headers["x-uselim-key"]) == .previous ? previousCode ?? pairingCode : pairingCode
         let origin = request.headers["origin"] ?? "https://\(request.headers["host"] ?? "localhost")"
-        push.add(subscription, origin: origin)
+        guard push.add(subscription, origin: origin, tag: pairingTag(code)) else {
+            return .text("Subscription refused", status: 400)
+        }
         return .json(["ok": true, "count": push.count])
     }
 

@@ -21,6 +21,7 @@ import type { ApiContentBlock, EngineInterface, Register, SessionMessage, Timer,
 //   asks/<session>.json      a question or a permission ask held for the phone; empty once settled
 //   files/<session>/         files and photos from the phone, Uselim's to write; a message names each by its path
 //   away.json                { away, at }: Uselim's reading of the Mac, rewritten every half minute
+//   local.key                the key every call to Uselim's server carries from the Mac, made by Uselim
 // A message from the phone enters as the person's own words, the same as a prompt typed in the panel.
 // A question goes to the dialog and to the phone at once, wherever the person is, and the first answer stands; a
 // permission ask goes to the phone while Uselim reads the Mac as away.
@@ -559,8 +560,9 @@ async function isAway($: EngineInterface) {
 
 // holds an ask for the phone: Uselim's server answers each wait within about 20 s with the phone's
 // answer, "desk" once the person is back at the Mac (a permission's wait), "stopped" after the phone's Stop, or
-// "waiting"; an hour of waits ends at the dialog. A question's wait (`always`) runs beside the dialog and ends
-// once `isDone` says the dialog answered.
+// "waiting"; a permission's hour of waits ends at the dialog. A question's wait (`always`) runs beside the dialog for
+// as long as the dialog stays open, so a question asked overnight is still on the phone in the morning; it ends once
+// `isDone` says the dialog answered, at a Stop, or as the dispatch ends.
 async function waitFor(
   $: EngineInterface,
   ask: Ask,
@@ -576,8 +578,13 @@ async function waitFor(
   try {
     const always = options.always ? '&always=1' : ''
     const url = `${SERVER}/relay/wait?session=${encodeURIComponent(chat.session)}&ask=${encodeURIComponent(ask.id)}${always}`
-    for (let round = 0; round < 180 && !signal.aborted && !options.isDone?.(); round += 1) {
-      const reply = await $.http.fetch(url, { headers: HEADERS }).catch(() => undefined)
+    // the server holds each wait 20 s before "waiting", which paces the rounds
+    const rounds = options.always ? Number.POSITIVE_INFINITY : 180
+    for (let round = 0; round < rounds && !signal.aborted && !options.isDone?.(); round += 1) {
+      // the local key, once Uselim has made it; an older Uselim takes the header alone
+      const key = (await $.fs.read(`${dir}/local.key`).catch(() => '')).trim()
+      const headers = key ? { ...HEADERS, 'X-Uselim-Key': key } : HEADERS
+      const reply = await $.http.fetch(url, { headers }).catch(() => undefined)
       if (!reply?.ok) return undefined
       const body = JSON.parse(reply.text) as { state?: string; answer?: Answer }
       if (body.state === 'answered') return body.answer

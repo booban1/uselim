@@ -4,7 +4,8 @@ import Foundation
 // Web push to the phone's Home Screen app (RFC 8030), each message encrypted for its subscription (RFC 8291,
 // aes128gcm) and signed with Uselim's VAPID key (RFC 8292). The key and the subscriptions live in the relay folder:
 // vapid.json (the signing key, readable by this user alone) and push.json. Apple's push service carries the
-// message; a 404 or 410 from it retires that subscription.
+// message; a 404 or 410 from it retires that subscription. A subscription names an endpoint on Apple's push service
+// alone, and carries the tag of the pairing code it came with (Relay's pairingTag): a new code leaves it behind.
 
 final class Push {
     private let keyPath = relayDir + "/vapid.json"
@@ -28,13 +29,52 @@ final class Push {
     var publicKey: String { base64URL(key.publicKey.x963Representation) }
     var count: Int { subscriptions.count }
 
-    func add(_ subscription: [String: Any], origin: String) {
-        guard let endpoint = subscription["endpoint"] as? String, endpoint.hasPrefix("https://"),
-              let keys = subscription["keys"] as? [String: Any], keys["p256dh"] is String, keys["auth"] is String else { return }
+    // web.push.apple.com today, any name under push.apple.com, over HTTPS
+    static func isApple(_ endpoint: String) -> Bool {
+        guard let url = URL(string: endpoint), url.scheme == "https", let host = url.host?.lowercased() else { return false }
+        return host == "push.apple.com" || host.hasSuffix(".push.apple.com")
+    }
+
+    func add(_ subscription: [String: Any], origin: String, tag: String) -> Bool {
+        guard let endpoint = subscription["endpoint"] as? String, Push.isApple(endpoint),
+              let keys = subscription["keys"] as? [String: Any], keys["p256dh"] is String, keys["auth"] is String else {
+            return false
+        }
         subscriptions.removeAll { $0["endpoint"] as? String == endpoint }
-        subscriptions.append(["endpoint": endpoint, "keys": keys, "origin": origin])
+        subscriptions.append(["endpoint": endpoint, "keys": keys, "origin": origin, "tag": tag])
         save()
         note("relay: phone subscribed for notifications (\(subscriptions.count) in all)")
+        return true
+    }
+
+    // the subscriptions the pairing codes in use stand behind: one from before the tags joins the current code, and
+    // one under another code, or on a host outside Apple's, leaves the list
+    func keep(tags: Set<String>, adopting: String) {
+        let before = subscriptions.count
+        var isTagged = false
+        subscriptions = subscriptions.compactMap { each in
+            var row = each
+            if row["tag"] == nil {
+                row["tag"] = adopting
+                isTagged = true
+            }
+            guard let endpoint = row["endpoint"] as? String, Push.isApple(endpoint),
+                  let tag = row["tag"] as? String, tags.contains(tag) else { return nil }
+            return row
+        }
+        guard isTagged || subscriptions.count != before else { return }
+        save()
+        note("relay: notification subscriptions under the current code: \(subscriptions.count) of \(before)")
+    }
+
+    // the previous code retiring: its phones carry on under the new one
+    func retag(from old: String, to new: String) {
+        var isChanged = false
+        for at in subscriptions.indices where subscriptions[at]["tag"] as? String == old {
+            subscriptions[at]["tag"] = new
+            isChanged = true
+        }
+        if isChanged { save() }
     }
 
     func send(title: String, body: String, url: String, tag: String) {
@@ -50,7 +90,7 @@ final class Push {
     }
 
     private func deliver(_ payload: Data, to subscription: [String: Any]) {
-        guard let endpoint = subscription["endpoint"] as? String, let url = URL(string: endpoint),
+        guard let endpoint = subscription["endpoint"] as? String, Push.isApple(endpoint), let url = URL(string: endpoint),
               let scheme = url.scheme, let host = url.host,
               let keys = subscription["keys"] as? [String: Any],
               let p256dh = (keys["p256dh"] as? String).flatMap(base64URLDecode),

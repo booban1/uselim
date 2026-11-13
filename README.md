@@ -54,8 +54,10 @@ Intel or Apple silicon Mac on macOS 13 or later.
 5. Open Uselim from the Home Screen, tap the scan icon in its code field and point it at Pair a phone…, or type the
    six digits; then turn notifications on in its Notification Center screen.
 
-Every request from the phone carries the pairing code; the relay answers the Mac itself and paired phones alone. A
-device that sends five wrong codes waits a minute before its next one, doubling up to an hour.
+Every request carries a key: the phone its pairing code, and Uselim's own parts on the Mac a key only your account
+can read, so other apps on the Mac reach the page's files alone. A device that sends five wrong codes waits a minute
+before its next one, doubling up to an hour, and devices yet to pair share one such count. Notifications go through
+Apple's push service alone, to the phones paired with the current code.
 
 ## Remove
 

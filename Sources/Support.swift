@@ -12,6 +12,10 @@ private let stamp: DateFormatter = {
 
 func note(_ text: String) {
     let line = "\(stamp.string(from: Date())) \(text)\n"
+    #if RELAY_TEST
+    // a test build's lines go to its own output, the installed app's log left as it is
+    FileHandle.standardOutput.write(Data(line.utf8))
+    #else
     guard let data = line.data(using: .utf8) else { return }
     if let handle = FileHandle(forWritingAtPath: logPath) {
         handle.seekToEndOfFile()
@@ -20,6 +24,7 @@ func note(_ text: String) {
     } else {
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
+    #endif
 }
 
 // "15:32", or "3:32 PM", as the Mac shows times

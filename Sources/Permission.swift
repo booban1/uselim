@@ -54,6 +54,7 @@ func runPermission() {
         guard let url = URL(string: "http://127.0.0.1:\(relayPort)/relay/wait?\(query)") else { break }
         var request = URLRequest(url: url, timeoutInterval: 40)
         request.setValue("1", forHTTPHeaderField: "X-Uselim")
+        if let key = localRelayKey() { request.setValue(key, forHTTPHeaderField: "X-Uselim-Key") }
         guard let body = fetchJSON(request) else {
             // Uselim restarting, or away: the card stays and the wait goes again
             Thread.sleep(forTimeInterval: 3)

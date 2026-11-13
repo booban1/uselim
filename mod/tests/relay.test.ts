@@ -435,6 +435,51 @@ test('the dialog can answer first, and the phone lets the question go', async ($
   expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
 })
 
+// 400 waits of 20 s each: over two hours with the dialog open, as a question asked overnight
+test('a question stays on the phone past an hour of waits, until an answer comes', async ($, on) => {
+  const { files } = world(on, 1_000_000)
+  let waits = 0
+  let heldLate = ''
+  on('http.fetch', () => {
+    waits += 1
+    if (waits === 200) heldLate = files.get(`${RELAY}/asks/${SESSION}.json`) ?? ''
+    if (waits < 400) return reply({ state: 'waiting' })
+    return reply({ state: 'answered', answer: { answers: { 'Which phone app?': 'Web app' } } })
+  })
+  dialog(on)
+  await $.session.start(START)
+
+  const answered = await $.tool.call({ tool: 'AskUserQuestion', questions: [QUESTION] })
+
+  expect(waits).toBe(400)
+  expect(JSON.parse(heldLate).kind).toBe('question')
+  expect((answered.result as { answers?: unknown } | undefined)?.answers).toEqual({ 'Which phone app?': 'Web app' })
+  expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
+})
+
+test("a permission's wait ends at the dialog after an hour of waits", async ($, on) => {
+  const { files } = world(on, 1_000_000)
+  let waits = 0
+  on('http.fetch', () => {
+    waits += 1
+    return reply({ state: 'waiting' })
+  })
+  // the dialog beneath, left to decide
+  let reachedDialog = false
+  on('classic.PermissionRequest', () => {
+    reachedDialog = true
+    return {}
+  })
+  await $.session.start(START)
+  files.set(`${RELAY}/away.json`, JSON.stringify({ away: true, at: 1_000_000 }))
+
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+
+  expect(waits).toBe(180)
+  expect(reachedDialog).toBe(true)
+  expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
+})
+
 test('a Stop while a question waits ends the turn and lets the question go', async ($, on) => {
   const { files, aborted } = world(on, 1_000_000)
   on('http.fetch', () => reply({ state: 'stopped' }))
@@ -447,6 +492,27 @@ test('a Stop while a question waits ends the turn and lets the question go', asy
   expect(aborted).toEqual(['turn-3'])
   expect(answered).toEqual(expect.objectContaining({ deny: 'The turn was stopped.' }))
   expect(files.get(`${RELAY}/asks/${SESSION}.json`)).toBe('')
+})
+
+test("a wait carries Uselim's local key once it exists, and the header alone before", async ($, on) => {
+  const { files } = world(on, 1_000_000)
+  const sent: string[] = []
+  on('http.fetch', (_, e) => {
+    sent.push(JSON.stringify(e))
+    return reply({ state: 'answered', answer: { allow: true } })
+  })
+  await $.session.start(START)
+  files.set(`${RELAY}/away.json`, JSON.stringify({ away: true, at: 1_000_000 }))
+  const key = 'a1'.repeat(32)
+
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+  files.set(`${RELAY}/local.key`, `${key}\n`)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'pwd' } })
+
+  expect(sent.length).toBe(2)
+  expect(sent[0]).toContain('X-Uselim')
+  expect(sent[0]).not.toContain('X-Uselim-Key')
+  expect(sent[1]).toContain(`"X-Uselim-Key":"${key}"`)
 })
 
 test('away from the Mac, a permission takes the phone allow', async ($, on) => {
