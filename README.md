@@ -1,7 +1,7 @@
 # Uselim
 
 Claude's usage limits in the Mac's menu bar and on the Windows taskbar, and the Claude Code chats open in VS Code,
-followed and answered from an iPhone.
+followed and answered from a phone, iPhone or Android.
 
 The full guide, with pictures: https://simonbooban.com/resources/how-to-use-uselim
 
@@ -12,7 +12,8 @@ The full guide, with pictures: https://simonbooban.com/resources/how-to-use-usel
   Touch Bar, the menu's Touch Bar switch puts the same figures on the strip.
 - **Chats waiting on an answer.** A chat that stops for a question or a permission shows at the top of the menu, with
   an orange dot on the bar.
-- **The phone (optional, off until turned on).** A Home Screen app on the iPhone, reached through Tailscale:
+- **The phone (optional, off until turned on).** A Home Screen app on the phone, iPhone or Android, reached through
+  Tailscale:
   - every chat open in VS Code, its replies, tool calls and code drawn as VS Code draws them
   - messages, photos and files sent to a chat as typed prompts, and a new chat opened on the Mac
   - questions and permissions answered from the phone, beside VS Code's own dialog, the first answer standing
@@ -46,12 +47,13 @@ Intel or Apple silicon Mac on macOS 13 or later.
 
 ## The phone
 
-1. On the iPhone, install Tailscale and sign in; the free Personal plan covers it.
+1. On the phone, install Tailscale and sign in; the free Personal plan covers it.
 2. In Uselim's menu, turn on **Phone**. The line beneath it takes the Mac through Tailscale a click at a time: its
-   installer when the Mac needs one, signing in with the iPhone's account, then Serve and HTTPS for Uselim's relay.
+   installer when the Mac needs one, signing in with the phone's account, then Serve and HTTPS for Uselim's relay.
 3. Choose **Pair a phone…**: a QR code and six digits, with a button that copies them. The digits pair one phone
    within ten minutes, and fresh ones follow while the window stays open.
-4. On the iPhone, scan the QR code with the Camera to open Uselim in Safari, then tap Share, then Add to Home Screen.
+4. On the phone, scan the QR code with the Camera to open Uselim: on an iPhone in Safari, then tap Share, then Add to
+   Home Screen; on Android in Chrome, then ⋮, then Add to Home screen.
 5. Open Uselim from the Home Screen, tap the scan icon in its code field and point it at Pair a phone…, or type the
    six digits; then turn notifications on in its Notification Center screen.
 
@@ -60,8 +62,8 @@ phones, each with Remove, which ends its key and its notifications. Every reques
 and Uselim's own parts on the Mac a key only your account can read, so other apps on the Mac reach the page's files
 alone. Requests from the phone carry the Mac's own name on the tailnet, and Tailscale's login, where it names one, is
 the Mac's. A device that sends five wrong keys waits a minute before its next one, doubling up to an hour, and devices
-yet to pair share one such count. A request's checks run before any of its body is read. Notifications go through
-Apple's push service alone, to the paired phones.
+yet to pair share one such count. A request's checks run before any of its body is read. Notifications go through the
+phone's own push service (Apple's for an iPhone, Google's for Chrome on Android), to the paired phones alone.
 
 ## What Uselim asks for, and why
 
@@ -82,11 +84,11 @@ Each ask comes once: what it serves, and what carries on when you decline it.
   chat waits on you and carry permission asks to the phone; the plugin carries the phone's messages into each chat,
   and its replies and questions back. The limits in the menu bar work either way.
 - **Tailscale**, with Phone on: its installer asks for your admin password, macOS for approval of Tailscale's VPN
-  configuration, and Tailscale for a sign-in. Tailscale carries the iPhone to the Mac over your own tailnet. Declined,
+  configuration, and Tailscale for a sign-in. Tailscale carries the phone to the Mac over your own tailnet. Declined,
   the phone side waits, and the limits and the menu bar work as before.
 - **Claude's usage figures** arrive with zero prompts.
 
-### On the iPhone
+### On the phone
 
 - **Tailscale's VPN configuration**, when you first turn Tailscale on. The phone reaches the Mac's relay through it
   alone.
@@ -104,13 +106,16 @@ and moves the app to the Trash.
 
 ## Windows
 
-Uselim for Windows carries the limits and the waiting chats; the phone follows in a later version.
+Uselim for Windows carries the limits, the waiting chats and the phone, iPhone or Android.
 
 - **On the taskbar.** The same two lines as the Mac's menu bar, beside the notification area: the session's share and
   its time left above, the week below, orange from 60% and red from 80%, an orange dot while a chat waits on an
   answer. A click opens the panel: each limit with its reset, the waiting chats, Open at login, Show on the taskbar,
   Remove Uselim. The tray keeps an asterisk icon with the same menu.
 - **Notices** at 60, 80 and 100%, when a limit that warned resets, and when a chat stops to ask you something.
+- **The phone**, as on the Mac: Phone in the panel takes the PC through Tailscale a click at a time (its installer,
+  the sign-in, then Serve and HTTPS), and Pair a phone… shows the QR code and the six digits. The steps on the phone
+  are the ones under The phone above.
 
 **Install:** download `Uselim-<version>-windows.zip` from a `windows-v` release, open `Uselim.exe`, and choose OK in
 Set up Uselim?. It needs Windows 10 or 11 and Claude Code, signed in. Windows 11 places a new tray icon behind the
@@ -119,13 +124,16 @@ arrow, so the first run opens Settings › Taskbar › Other system tray icons, 
 **What it changes on the PC:**
 
 - `%LOCALAPPDATA%\Programs\Uselim\Uselim.exe`, the app, in your own folders, so it asks for zero administrator rights.
-- Claude Code's settings (`%USERPROFILE%\.claude\settings.json`): five hooks and, when that slot is free, the status
+- Claude Code's settings (`%USERPROFILE%\.claude\settings.json`): six hooks and, when that slot is free, the status
   line. The file as it stood is copied to `%LOCALAPPDATA%\Uselim\backups` before each change.
+- Claude Code's plugin `uselim`, installed from the copy Uselim writes beside its exe; it carries the phone's messages
+  into each chat.
 - Open at login, as Uselim's entry under Windows' Run list for your account.
 - The Claude Code login in `%USERPROFILE%\.claude\.credentials.json`, read to ask Anthropic for the usage figures.
 
 **Remove:** Remove Uselim… in the panel, or `%LOCALAPPDATA%\Programs\Uselim\Uselim.exe --remove`. Either one takes
-the hooks and status line out of Claude Code's settings (a backup kept), ends Open at login and deletes the app.
+the hooks and status line out of Claude Code's settings (a backup kept), removes the plugin, ends Open at login and
+deletes the app.
 
 **Build from source:** `windows/build.sh` builds `Uselim.exe` on a Mac with the .NET SDK (`./build.sh test` runs the
 core's checks first); the Windows workflow in `.github/workflows/windows.yml` builds, checks and signs releases on
@@ -142,9 +150,10 @@ Free code signing on Windows provided by [SignPath.io](https://about.signpath.io
 Every Windows release is built from this repository by its GitHub workflow, and each signing waits for an approver's
 yes in SignPath.
 
-**Privacy:** Uselim for Windows connects to two places. `api.anthropic.com`, with the Claude Code login, for the usage figures
-Claude's own usage panel shows; and GitHub (`api.github.com`, `github.com`), for Uselim's own updates. Everything
-else stays on the computer.
+**Privacy:** Uselim for Windows connects to `api.anthropic.com`, with the Claude Code login, for the usage figures
+Claude's own usage panel shows; to GitHub (`api.github.com`, `github.com`) for Uselim's own updates; and, with Phone
+on, to the paired phones' own push services (Apple's, Google's, Mozilla's) for their notifications. Tailscale carries
+the phone to the PC over your own tailnet. Everything else stays on the computer.
 
 ## Build from source
 

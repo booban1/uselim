@@ -57,6 +57,15 @@ namespace Uselim
         public static string PrefsPath => Path.Combine(SupportDir, "prefs.json");
         public static string BackupDir => Path.Combine(SupportDir, "backups");
         public static string LogPath => Path.Combine(SupportDir, "Uselim.log");
+        // the folder the phone relay shares with the Uselim mod in every chat
+        public static string RelayDir
+        {
+            get
+            {
+                var test = Environment.GetEnvironmentVariable("USELIM_TEST_RELAY");
+                return string.IsNullOrEmpty(test) ? Path.Combine(SupportDir, "relay") : test;
+            }
+        }
 
         public static string InstallDir => Path.Combine(LocalData, "Programs", "Uselim");
         public static string InstalledExe => Path.Combine(InstallDir, "Uselim.exe");
@@ -94,12 +103,19 @@ namespace Uselim
     public static class Log
     {
         private static readonly object gate = new object();
+        // the Mac-side checks' relay writes its lines to its own output, the app's log left as it is
+        public static bool ToConsole;
 
         public static void Note(string text)
         {
             var line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + text + "\n";
             lock (gate)
             {
+                if (ToConsole)
+                {
+                    Console.Write(line);
+                    return;
+                }
                 try
                 {
                     Directory.CreateDirectory(Paths.SupportDir);
@@ -130,6 +146,12 @@ namespace Uselim
         public static bool Flag(string key)
         {
             lock (gate) return Load().Bool(key) ?? false;
+        }
+
+        // a switch as saved, or null while it was never set
+        public static bool? FlagOrNull(string key)
+        {
+            lock (gate) return Load().Bool(key);
         }
 
         public static void Set(string key, object value)

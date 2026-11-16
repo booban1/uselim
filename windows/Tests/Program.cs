@@ -23,8 +23,28 @@ namespace Uselim.Tests
             }
         }
 
-        public static int Main()
+        public static int Main(string[] args)
         {
+            // the relay alone, for test-relay.sh, in the folder and on the port its variables give
+            if (args.Contains("--relay")) return RelayRunner.Serve();
+            if (args.Contains("--permission")) return RelayRunner.Permission();
+            if (args.Contains("--hook")) return RelayRunner.Hook();
+            // a QR code's squares as lines of 1 and 0, for the Mac's QR reader to check
+            if (args.Length == 3 && args[0] == "--qr")
+            {
+                var qr = Qr.Encode(args[1]);
+                var lines = new List<string>();
+                for (var y = 0; y < qr.Size; y++)
+                {
+                    var row = new System.Text.StringBuilder();
+                    for (var x = 0; x < qr.Size; x++) row.Append(qr.Modules[y, x] ? '1' : '0');
+                    lines.Add(row.ToString());
+                }
+                File.WriteAllLines(args[2], lines);
+                Console.WriteLine("version " + qr.Version);
+                return 0;
+            }
+
             var root = Path.Combine(Path.GetTempPath(), "uselim-tests-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Environment.SetEnvironmentVariable("USELIM_SUPPORT_DIR", Path.Combine(root, "support"));
             Environment.SetEnvironmentVariable("USELIM_CLAUDE_DIR", Path.Combine(root, "claude"));
@@ -39,6 +59,7 @@ namespace Uselim.Tests
                 SettingsChecks();
                 AlertChecks();
                 ReadoutChecks();
+                PushChecks();
             }
             finally
             {
@@ -161,6 +182,11 @@ namespace Uselim.Tests
             Check("setup keeps key order", string.Join(",", added.Keys) == "model,hooks,env,statusLine", string.Join(",", added.Keys));
             Check("setup twice is the same", Json.Write(Settings.Reconciled(added, true, cmd)) == Json.Write(added));
             Check("setup leaves the input", !Settings.HasHooks(before));
+            Check("any hook of Uselim's counts as a setup", Settings.HasAnyHook(added) && !Settings.HasAnyHook(before));
+            var older = Json.ParseObject(Json.Write(added));
+            older.Obj("hooks").Remove("PermissionRequest");
+            Check("an older setup lacks the phone's hook, and a setup again adds it",
+                !Settings.HasHooks(older) && Settings.HasAnyHook(older) && Settings.HasHooks(Settings.Reconciled(older, true, cmd)));
             var removed = Settings.Reconciled(added, false, cmd);
             Check("remove restores", Json.Write(removed) == Json.Write(before), Json.Write(removed));
 
@@ -181,6 +207,28 @@ namespace Uselim.Tests
             Check("backup kept", Directory.GetFiles(Paths.BackupDir, "settings-*.json").Length == 1);
             var again = Settings.ReadSettings();
             Check("settings unchanged write", Settings.Write(Settings.Reconciled(again, true, cmd), again, out var note2) && note2 == "already in place", note2);
+        }
+
+        // RFC 8291's own example: the same keys, salt and words give the same bytes
+        private static void PushChecks()
+        {
+            var asPrivate = Base64Url.Decode("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw");
+            var asPublic = Base64Url.Decode("BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8");
+            var uaPublic = Base64Url.Decode("BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4");
+            var auth = Base64Url.Decode("BTBZMqHH6r4Tts7J_aSIgg");
+            var salt = Base64Url.Decode("DGv6ra1nlYgDCS1FRnbzlw");
+            var local = new System.Security.Cryptography.ECParameters
+            {
+                Curve = System.Security.Cryptography.ECCurve.NamedCurves.nistP256, D = asPrivate,
+                Q = new System.Security.Cryptography.ECPoint { X = asPublic.Skip(1).Take(32).ToArray(), Y = asPublic.Skip(33).Take(32).ToArray() },
+            };
+            var body = Push.Encrypt(System.Text.Encoding.UTF8.GetBytes("When I grow up, I want to be a watermelon"), uaPublic, auth, salt, local);
+            const string expected = "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN";
+            Check("web push matches RFC 8291's example", Base64Url.Encode(body) == expected, Base64Url.Encode(body));
+            Check("push services: Apple, Google, Mozilla", Push.IsKnownService("https://web.push.apple.com/Q1") && Push.IsKnownService("https://fcm.googleapis.com/fcm/send/x")
+                && Push.IsKnownService("https://updates.push.services.mozilla.com/wpush/v2/x"));
+            Check("push services: others refused", !Push.IsKnownService("https://push.example.com/x") && !Push.IsKnownService("http://web.push.apple.com/x")
+                && !Push.IsKnownService("https://fcm.googleapis.com.example.com/x"));
         }
 
         private static void ReadoutChecks()

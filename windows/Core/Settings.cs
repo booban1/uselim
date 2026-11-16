@@ -5,10 +5,10 @@ using System.Linq;
 
 namespace Uselim
 {
-    // Uselim's entries in Claude Code's settings.json: five hooks, so Uselim hears questions, permission asks and their
-    // answers, and a status line that hands Uselim the limits after each reply, set only where the settings hold zero status line.
-    // The file as it stood is copied to the backups before each change, the newest ten kept. The phone's permission hook
-    // and plugin wait for the phone version.
+    // Uselim's entries in Claude Code's settings.json: six hooks, so Uselim hears questions, permission asks and their
+    // answers and the phone can answer a permission, and a status line that hands Uselim the limits after each reply,
+    // set only where the settings hold zero status line. The file as it stood is copied to the backups before each
+    // change, the newest ten kept.
     //
     // On Windows Claude Code runs these commands through Git Bash, or PowerShell where Git Bash is missing. Both read
     // "~/AppData/Local/Programs/Uselim/Uselim.exe --hook" alike: forward slashes, and the profile's path (spaces
@@ -16,13 +16,16 @@ namespace Uselim
 
     public static class Settings
     {
+        // the hook events Uselim answers, each with its matcher where it takes one; a permission waits up to an hour for
+        // the phone beside the panel's own dialog
         private static readonly string[][] events =
         {
-            new[] { "PreToolUse", "AskUserQuestion" },
-            new[] { "PostToolUse", null },
-            new[] { "Notification", "permission_prompt" },
-            new[] { "UserPromptSubmit", null },
-            new[] { "SessionEnd", null },
+            new[] { "PreToolUse", "AskUserQuestion", "--hook" },
+            new[] { "PostToolUse", null, "--hook" },
+            new[] { "Notification", "permission_prompt", "--hook" },
+            new[] { "UserPromptSubmit", null, "--hook" },
+            new[] { "SessionEnd", null, "--hook" },
+            new[] { "PermissionRequest", null, "--permission" },
         };
 
         // the command that runs an exe: "~/..." inside the profile, else the whole path in quotes with forward slashes
@@ -67,7 +70,7 @@ namespace Uselim
             {
                 foreach (var e in events)
                 {
-                    var handler = new JObject { ["type"] = "command", ["command"] = command + " --hook", ["timeout"] = 5L };
+                    var handler = new JObject { ["type"] = "command", ["command"] = command + " " + e[2], ["timeout"] = e[2] == "--permission" ? 3600L : 5L };
                     var group = new JObject();
                     if (e[1] != null) group["matcher"] = e[1];
                     group["hooks"] = new List<object> { handler };
@@ -130,6 +133,10 @@ namespace Uselim
             }
             return true;
         }
+
+        // any hook of Uselim's in place: a setup that ran, its hooks still standing
+        public static bool HasAnyHook(JObject settings) =>
+            settings?.Obj("hooks")?.Select(kv => kv.Value).OfType<List<object>>().Any(groups => groups.Any(IsOurGroup)) == true;
 
         // every hook in place
         public static bool HasHooks(JObject settings)

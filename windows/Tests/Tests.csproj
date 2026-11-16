@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The Windows app's core, checked on the Mac: the same Core sources on modern .NET, run as a console program -->
+  <!-- The Windows app's core, checked on the Mac on modern .NET, and on GitHub's Windows runner on .NET Framework 4.8 as
+       well, the framework Uselim.exe runs on (its AES-GCM goes through Windows' own CNG there) -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net11.0</TargetFramework>
+    <TargetFrameworks>net11.0;net48</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -10,6 +11,9 @@
     <NoWarn>$(NoWarn);SYSLIB0014</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../Core/*.cs" />
+    <Compile Include="../Core/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 </Project>

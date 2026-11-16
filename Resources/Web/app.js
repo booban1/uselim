@@ -912,7 +912,7 @@ async function phonePush() {
 }
 
 // the main switch: on while this phone takes pushes and the Mac sends them; off hides the kinds and the test. A phone
-// yet to subscribe reads off, and turning it on asks iOS first.
+// yet to subscribe reads off, and turning it on asks the phone first.
 async function drawSettings() {
   if (isSwitching) return
   const found = await phonePush()
@@ -924,7 +924,7 @@ async function drawSettings() {
   input.disabled = phone === 'unavailable' || phone === 'blocked'
   const lines = {
     unavailable: 'Available in the Home Screen app',
-    blocked: 'Blocked in iOS Settings',
+    blocked: "Blocked in the phone's Settings",
     off: 'Turn on for this phone',
     on: 'Off hides everything below',
   }
@@ -940,7 +940,8 @@ function keyBytes(text) {
   return Uint8Array.from(raw, c => c.charCodeAt(0))
 }
 
-// the permission prompt first, inside the tap, as iOS asks; true once the Mac holds this phone's subscription
+// the permission prompt first, inside the tap, as iOS asks (Android takes it the same way); true once the Mac holds
+// this phone's subscription
 async function turnOnPush() {
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') return false

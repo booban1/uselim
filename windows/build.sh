@@ -7,7 +7,7 @@ cd "${0:A:h}"
 export PATH="/usr/local/share/dotnet:$PATH" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
 if [[ $1 == test || $1 == release ]]; then
-  dotnet run --project Tests/Tests.csproj -c Release
+  dotnet run --project Tests/Tests.csproj -c Release -f net11.0
 fi
 
 dotnet build Uselim.csproj -c Release -nologo -v quiet

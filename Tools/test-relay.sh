@@ -177,8 +177,9 @@ start
 fromphone "the pause holds across a restart" 429 100.64.1.12 $code $url/api/state
 fromphone "the paired phone carries on after a restart" 200 100.64.0.1 $code $url/api/state
 
-# notifications: Apple's push service alone, from the phone, under the phone's own tag; Remove ends a phone's key and
-# its notifications, an untagged subscription from before joins the lasting code, and the lasting code trades once
+# notifications: a phone's own push service (Apple's, Google's, Mozilla's), from the phone, under the phone's own tag;
+# Remove ends a phone's key and its notifications, an untagged subscription from before joins the lasting code, and the
+# lasting code trades once
 subscription() { print -r -- "{\"subscription\":{\"endpoint\":\"$1\",\"keys\":{\"p256dh\":\"BAAA\",\"auth\":\"AAAA\"}}}" }
 # a refusal of any kind: 401, or 429 while the pause across unpaired devices lasts
 refused() {
@@ -186,15 +187,17 @@ refused() {
     -H "X-Forwarded-For: $2" -H "X-Uselim-Key: $3" "${@:4}")
   expect "$1 ($got)" test $got = 401 -o $got = 429
 }
-fromphone "an endpoint outside Apple's push service is refused" 400 100.64.0.1 $code "${json[@]}" \
-  -d "$(subscription https://fcm.googleapis.com/fcm/send/test)" $url/api/push
+fromphone "an endpoint outside the phones' push services is refused" 400 100.64.0.1 $code "${json[@]}" \
+  -d "$(subscription https://push.example.com/test)" $url/api/push
+fromphone "Android's push endpoint is taken" 200 100.64.0.1 $code "${json[@]}" \
+  -d "$(subscription https://fcm.googleapis.com/fcm/send/QAndroid)" $url/api/push
 fromphone "a plain http endpoint is refused" 400 100.64.0.1 $code "${json[@]}" \
   -d "$(subscription http://web.push.apple.com/test)" $url/api/push
 fromphone "an Apple push endpoint is taken" 200 100.64.0.1 $code "${json[@]}" \
   -d "$(subscription https://web.push.apple.com/QTest)" $url/api/push
 check "a subscription from the Mac itself is refused" 403 "${mac[@]}" -H "X-Uselim-Key: $key" "${json[@]}" \
   -d "$(subscription https://web.push.apple.com/QMac)" $url/api/push
-expect "the subscription carries its phone's tag" /usr/bin/grep -q "\"tag\":\"$(listed 0 id)\"" $dir/push.json
+expect "the subscriptions carry their phone's tag" test "$(/usr/bin/grep -o "\"tag\":\"$(listed 0 id)\"" $dir/push.json | wc -l | tr -d ' ')" = 2
 check "Remove ends a phone" 200 "${mac[@]}" -H "X-Uselim-Key: $key" -X POST "$url/relay/test-remove?id=$(listed 0 id)"
 expect "and its notifications" test "$(/usr/bin/grep -o '"endpoint"' $dir/push.json | wc -l | tr -d ' ')" = 0
 refused "a removed phone's key opens nothing" 100.64.0.6 $code $url/api/state
@@ -205,7 +208,7 @@ expect "and takes its name back" test "$(listed 0 name)" = iPhone
 stop
 print -r -- '[{"endpoint":"https://web.push.apple.com/QBefore","keys":{"p256dh":"BAAA","auth":"AAAA"}},{"endpoint":"https://push.example.com/x","keys":{"p256dh":"BAAA","auth":"AAAA"}}]' > $dir/push.json
 start
-expect "a subscription from before the tags joins the lasting code, and one outside Apple's leaves" \
+expect "a subscription from before the tags joins the lasting code, and one outside the phones' services leaves" \
   sh -c "/usr/bin/grep -q QBefore $dir/push.json && ! /usr/bin/grep -q push.example.com $dir/push.json && /usr/bin/grep -q '\"tag\"' $dir/push.json"
 fromphone "the lasting code trades for its phone's own key" 200 100.64.0.6 $legacy "${iphone[@]}" -X POST $url/api/pair
 traded=$(/usr/bin/plutil -extract token raw -o - $dir/body)

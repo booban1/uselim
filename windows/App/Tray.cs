@@ -23,6 +23,12 @@ namespace Uselim
         private readonly Control ui = new Control();
         private readonly Flyout panel;
         private readonly TaskbarReadout readout;
+        // the phone side: the relay on a loop of its own, what it asks of Windows, the Tailscale steps, Pair a phone
+        private readonly Loop relayLoop = new Loop("Uselim relay");
+        private readonly RelayHost relayHost = new RelayHost();
+        private readonly Relay relay;
+        private readonly PhoneSetup phoneSetup;
+        private PairWindow pairWindow;
         private readonly int[] demo;
 
         public List<Limit> Limits = new List<Limit>();
@@ -89,9 +95,20 @@ namespace Uselim
             menu.Items.Add("Quit", null, (s, e) => ExitThread());
             icon.ContextMenuStrip = menu;
             readout = new TaskbarReadout(this);
+            phoneSetup = new PhoneSetup();
+            relay = new Relay(new RelaySettings
+            {
+                Dir = Paths.RelayDir, Port = PhoneSetup.RelayPort,
+                TailnetName = Prefs.Str("tailnetName") ?? "", TailnetLogin = Prefs.Str("tailnetLogin") ?? "",
+            }, relayHost, relayLoop);
+            phoneSetup.Changed = () => panel.Redraw();
+            phoneSetup.NameFound = name => relay.TailnetName = name;
+            phoneSetup.LoginFound = login => relay.TailnetLogin = login;
             Draw();
             icon.Visible = true;
             if (OnTaskbar) readout.Start();
+            if (this.demo.Length == 0 && Install.IsInstalledCopy) Task.Run(() => Install.RefreshHooks());
+            if (this.demo.Length == 0 && IsPhoneOn()) StartPhone();
 
             Watch(Paths.WaitingDir, name => true, () => waitingChanged = true);
             Watch(Paths.SupportDir, name => string.Equals(name, "limits.json", StringComparison.OrdinalIgnoreCase), () => pushChanged = true);
@@ -110,6 +127,7 @@ namespace Uselim
 
             SystemEvents.UserPreferenceChanged += ThemeChanged;
             SystemEvents.PowerModeChanged += PowerChanged;
+            SystemEvents.SessionSwitch += SessionSwitched;
 
             // "Uselim.exe --quit" and a setup's update ask this copy to leave through a named event
             quit = new EventWaitHandle(false, EventResetMode.AutoReset, Install.QuitName);
@@ -151,6 +169,71 @@ namespace Uselim
         private void PowerChanged(object sender, PowerModeChangedEventArgs e)
         {
             if (e.Mode == PowerModes.Resume) Refresh();
+        }
+
+        // the screen locked counts as away for the phone, as on the Mac
+        private void SessionSwitched(object sender, SessionSwitchEventArgs e)
+        {
+            if (e.Reason == SessionSwitchReason.SessionLock || e.Reason == SessionSwitchReason.ConsoleDisconnect) relayHost.IsLocked = true;
+            if (e.Reason == SessionSwitchReason.SessionUnlock || e.Reason == SessionSwitchReason.ConsoleConnect) relayHost.IsLocked = false;
+        }
+
+        // The phone
+
+        // off until turned on, and on by itself where a phone already subscribed
+        public static bool IsPhoneOn() => Prefs.FlagOrNull("phone") ?? File.Exists(Path.Combine(Paths.RelayDir, "push.json"));
+
+        public bool PhoneOn => IsPhoneOn();
+        public string PhoneLine => PhoneOn ? phoneSetup.Line : null;
+        public bool CanPair => PhoneOn && phoneSetup.Step == PhoneStep.Ready && phoneSetup.DnsName.Length > 0;
+        public void PhoneAct() => phoneSetup.Act();
+
+        public void SetPhone(bool on)
+        {
+            Prefs.Set("phone", on);
+            if (on) StartPhone();
+            else StopPhone();
+            panel.Redraw();
+        }
+
+        private void StartPhone()
+        {
+            relayLoop.Post(relay.Start);
+            phoneSetup.Start();
+            if (Install.IsInstalledCopy) Task.Run(() => Install.EnsurePlugin());
+            Log.Note("phone: on");
+        }
+
+        private void StopPhone()
+        {
+            relayLoop.Post(relay.Stop);
+            phoneSetup.Stop();
+            pairWindow?.Close();
+            Log.Note("phone: off");
+        }
+
+        public void OpenPair()
+        {
+            panel.Hide();
+            if (pairWindow != null && !pairWindow.IsDisposed)
+            {
+                pairWindow.Activate();
+                return;
+            }
+            pairWindow = new PairWindow(relay, relayLoop, "https://" + phoneSetup.DnsName);
+            pairWindow.FormClosed += (o, e) => pairWindow = null;
+            pairWindow.Show();
+            pairWindow.Activate();
+        }
+
+        // the limit notices, on the PC and, while the phone side is on, in the phone's log and its notifications
+        private void Tell(List<string[]> notices)
+        {
+            foreach (var n in notices)
+            {
+                Notify(n[0], n[1]);
+                if (PhoneOn) relay.LimitNotice(n[0], n[1]);
+            }
         }
 
         // Reading
@@ -208,7 +291,7 @@ namespace Uselim
                     pause = 0;
                     KeepPacing();
                     if (demo.Length == 0) Usage.SaveState(Limits, now);
-                    foreach (var n in alerts.Check(Limits, now)) Notify(n[0], n[1]);
+                    Tell(alerts.Check(Limits, now));
                     Show(Shown.Limits);
                     break;
                 case FetchKind.SignedOut:
@@ -362,7 +445,7 @@ namespace Uselim
             }
             Limits = Usage.Ordered(merged);
             Fetched = at;
-            foreach (var n in alerts.Check(Limits, now)) Notify(n[0], n[1]);
+            Tell(alerts.Check(Limits, now));
             Show(Shown.Limits);
         }
 
@@ -383,6 +466,7 @@ namespace Uselim
 
         public void Draw()
         {
+            relayHost.Snapshot = Tuple.Create(Limits, Fetched);
             var light = Palette.TaskbarLight;
             var dot = Waits.Count > 0;
             var stale = Limits.Count == 0 ? State != Shown.Waiting : Stale;
@@ -508,6 +592,10 @@ namespace Uselim
         {
             SystemEvents.UserPreferenceChanged -= ThemeChanged;
             SystemEvents.PowerModeChanged -= PowerChanged;
+            SystemEvents.SessionSwitch -= SessionSwitched;
+            pairWindow?.Close();
+            relayLoop.Post(relay.Stop);
+            phoneSetup.Stop();
             quitWait?.Unregister(null);
             quit?.Dispose();
             foreach (var w in watchers) w.Dispose();

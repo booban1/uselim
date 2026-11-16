@@ -1415,6 +1415,8 @@ final class Relay {
             "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
             "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
             "/icon.png": ("icon.png", "image/png"),
+            // the 192 px one, which Chrome on Android asks for to install the app
+            "/icon-192.png": ("icon-192.png", "image/png"),
             "/back.png": ("back.png", "image/png"),
             "/send.png": ("send.png", "image/png"),
             "/attach.png": ("attach.png", "image/png"),

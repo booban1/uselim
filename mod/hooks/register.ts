@@ -1,8 +1,8 @@
 import type { ApiContentBlock, EngineInterface, Register, SessionMessage, Timer, ToolUseSummary } from 'claude-code'
 
-// Uselim's phone relay inside a chat. The phone reaches the session through files Uselim keeps in
-// ~/Library/Application Support/Uselim/relay, and through Uselim's local server, which holds a question
-// or a permission ask open until the phone answers it:
+// Uselim's phone relay inside a chat. The phone reaches the session through files Uselim keeps in the relay folder
+// (~/Library/Application Support/Uselim/relay on the Mac, %LOCALAPPDATA%\Uselim\relay on Windows), and through
+// Uselim's local server, which holds a question or a permission ask open until the phone answers it:
 //   chats/<session>.json     the chat: folder, opening words, working or idle, the main loop's running tools,
 //                            its last sign of life, its model and effort, and when it last took a switch from the phone
 //   history/<session>.json   the recent items: the person's words, the answers, and a row per tool call with its
@@ -647,9 +647,12 @@ async function waitFor(
 // loaded the mod mid-session (an install, then /reload-plugins)
 async function ensure($: EngineInterface, cwd?: string) {
   if (chat) return
+  // Uselim's folder: %LOCALAPPDATA%\Uselim\relay on Windows, ~/Library/Application Support/Uselim/relay on the Mac
+  const local = await $.env.get('LOCALAPPDATA')
   const home = await $.env.get('HOME')
-  if (!home) return
-  dir = `${home}/Library/Application Support/Uselim/relay`
+  if (local) dir = `${local}/Uselim/relay`
+  else if (home) dir = `${home}/Library/Application Support/Uselim/relay`
+  else return
   const session = await $.session.id()
   // the folder the chat started in, which a shell's cd leaves alone: Claude Code keeps the transcript under it
   const where = cwd ?? (await $.session.root())

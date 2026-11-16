@@ -95,8 +95,25 @@ namespace Uselim
                 default:
                     // PostToolUse (the question got its answer, or the tool ran after its permission), UserPromptSubmit, SessionEnd
                     try { if (File.Exists(file)) File.Delete(file); } catch (Exception) { }
+                    TakeDownPermissionCard(session, json, hookEvent);
                     break;
             }
+        }
+
+        // the phone's permission card comes down once the chat moves on: the tool it asks about ran (allowed at the PC),
+        // a prompt came, or the chat closed; a waiting --permission sees its card go and leaves
+        private static void TakeDownPermissionCard(string session, JObject json, string hookEvent)
+        {
+            var path = Path.Combine(Paths.RelayDir, "asks", session + ".json");
+            var card = Relay.ReadJson(path);
+            if (card == null || card.Str("kind") != "permission") return;
+            if (hookEvent == "PostToolUse")
+            {
+                var name = json.Str("tool_name") ?? "";
+                Permission.DescribeCall(name, json.Obj("tool_input") ?? new JObject(), out var detail, out _);
+                if (card.Str("tool") != Permission.ToolLabel(name) || card.Str("detail") != detail) return;
+            }
+            try { File.WriteAllText(path, ""); } catch (Exception) { }
         }
 
         private static string Plain(string text)

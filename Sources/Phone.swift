@@ -311,9 +311,10 @@ final class PairWindow: NSWindowController, NSWindowDelegate {
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         let steps = NSTextField(wrappingLabelWithString:
-            "On the iPhone, install Tailscale from the App Store and sign in with the same account. Scan this code with "
-            + "the Camera to open Uselim in Safari, then choose Share and Add to Home Screen. In the Uselim app, tap the "
-            + "scan icon in the code field and point it here, or type the six digits.")
+            "On the phone, install Tailscale and sign in with the same account. Scan this code with the Camera to open "
+            + "Uselim: on an iPhone in Safari, then choose Share and Add to Home Screen; on Android in Chrome, then ⋮ and "
+            + "Add to Home screen. In the Uselim app, tap the scan icon in the code field and point it here, or type the "
+            + "six digits.")
         steps.font = .systemFont(ofSize: 12)
         steps.preferredMaxLayoutWidth = 300
 

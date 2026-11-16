@@ -6,9 +6,10 @@ using System.Windows.Forms;
 
 namespace Uselim
 {
-    // Uselim for Windows: Claude's usage limits in the tray, read through the Claude Code login.
-    // "--hook" takes one Claude Code event on stdin and leaves; "--statusline" takes one status line update on stdin,
-    // keeps its figures and prints the line; "--setup", "--remove", "--state" and "--quit" set up, remove, report and
+    // Uselim for Windows: Claude's usage limits on the taskbar, read through the Claude Code login, and the chats on the
+    // phone. "--hook" takes one Claude Code event on stdin and leaves; "--statusline" takes one status line update on
+    // stdin, keeps its figures and prints the line; "--permission" puts a permission on the phone and prints the phone's
+    // answer, unless the PC's dialog answers first; "--setup", "--remove", "--state" and "--quit" set up, remove, report and
     // stop the app; "--status" prints the figures; "--login on" or "off" sets Open at login; "--demo 85,92,40" shows
     // given shares in place of the real ones, from wherever the exe sits. Started from anywhere else than its own
     // folder, the exe sets itself up there and starts that copy.
@@ -30,6 +31,12 @@ namespace Uselim
             if (a.Contains("--statusline"))
             {
                 Stdio.Write(StatusLine.Take(Stdio.ReadIn(), DateTime.UtcNow) + "\n");
+                return 0;
+            }
+            if (a.Contains("--permission"))
+            {
+                var decision = Permission.Run(Stdio.ReadIn(), Paths.RelayDir, PhoneSetup.RelayPort, Tray.IsPhoneOn());
+                if (decision != null) Stdio.Write(decision + "\n");
                 return 0;
             }
             if (a.Contains("--setup")) return Install.Setup();

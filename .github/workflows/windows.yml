@@ -28,8 +28,11 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
-      - name: Core checks
-        run: dotnet run --project windows/Tests/Tests.csproj -c Release
+      - name: Core checks on .NET
+        run: dotnet run --project windows/Tests/Tests.csproj -c Release -f net11.0
+
+      - name: Core checks on .NET Framework, as Uselim.exe runs
+        run: dotnet run --project windows/Tests/Tests.csproj -c Release -f net48
 
       - name: Build
         run: dotnet build windows/Uselim.csproj -c Release -nologo
@@ -82,4 +85,4 @@ jobs:
           $v = "${{ steps.version.outputs.version }}"
           gh release create "windows-v$v" "out/Uselim-$v-windows.zip" "out/Uselim-$v-windows.zip.sha256" `
             --title "Uselim for Windows $v" --latest=false --target "${{ github.sha }}" `
-            --notes "Uselim for Windows $v. Download the zip, open Uselim.exe, and choose OK to set it up. Code signing policy: see the README."
+            --notes "Uselim for Windows $v. Download the zip, open Uselim.exe, and choose OK in Set up Uselim?. Free code signing on Windows provided by SignPath.io, certificate by SignPath Foundation: see the Code signing policy, https://github.com/booban1/uselim#code-signing-policy"

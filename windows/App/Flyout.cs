@@ -234,6 +234,28 @@ namespace Uselim
             Rule(g, y, w);
             y += P(6);
 
+            // the phone: its switch, the live step under it (a click takes that step's way forward), and Pair a phone…
+            // once Tailscale serves the relay
+            var phoneRow = new Rectangle(0, y, w, P(40));
+            var phoneOn = tray.PhoneOn;
+            Row(phoneRow, () => tray.SetPhone(!phoneOn));
+            Say(g, "Phone", body, palette.Text, new Rectangle(pad, y + P(10), w - 2 * pad - P(56), P(20)));
+            Switch(g, new Rectangle(w - pad - P(40), y + P(10), P(40), P(20)), phoneOn);
+            y += phoneRow.Height;
+            var step = tray.PhoneLine;
+            if (step != null)
+            {
+                Link(g, step, new Rectangle(pad, y, w - 2 * pad, P(28)), tray.PhoneAct, false);
+                y += P(28);
+            }
+            if (tray.CanPair)
+            {
+                Link(g, "Pair a phone…", new Rectangle(pad, y, w - 2 * pad, P(32)), tray.OpenPair, false);
+                y += P(32);
+            }
+            Rule(g, y + P(4), w);
+            y += P(10);
+
             // Open at login, its switch on the right
             var loginRow = new Rectangle(0, y, w, P(40));
             var canLogin = Install.IsInstalledCopy;

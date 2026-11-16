@@ -20,7 +20,7 @@ const OPENING = [{ role: 'user' as const, text: 'can we build a phone relay?', t
 // what /effort prints for a level: set as asked, by default
 const EFFORT_SET = (level: string) => `Set effort level to ${level} (this session only): Comprehensive implementation`
 
-function world(on: On, now: number, rows: unknown[] = OPENING, effortText = EFFORT_SET) {
+function world(on: On, now: number, rows: unknown[] = OPENING, effortText = EFFORT_SET, env: Record<string, string> = { HOME }) {
   const files = new Map<string, string>()
   const submitted: { text: string; origin?: unknown }[] = []
   const aborted: string[] = []
@@ -29,7 +29,7 @@ function world(on: On, now: number, rows: unknown[] = OPENING, effortText = EFFO
   const order: string[] = []
   let model = 'claude-opus-5-5'
   const clock = mock.clock(on, { now })
-  mock.env(on, { HOME })
+  mock.env(on, env)
   on('fs.read', (_, e) => ({ value: files.get(e.path) ?? '' }))
   on('fs.write', (_, e) => {
     files.set(e.path, e.text)
@@ -88,6 +88,15 @@ const WORKED = [
     ],
   },
 ]
+
+test('on Windows the relay folder sits in LOCALAPPDATA, where Uselim for Windows keeps it', async ($, on) => {
+  const local = 'C:/Users/dana/AppData/Local'
+  const { files } = world(on, 1_000_000, OPENING, EFFORT_SET, { LOCALAPPDATA: local })
+  await $.session.start(START)
+  // the Mac running the checks reads "C:/" as a relative path; Windows reads it whole
+  expect([...files.keys()].some(path => path.endsWith(`${local}/Uselim/relay/chats/${SESSION}.json`))).toBe(true)
+  expect([...files.keys()].some(path => path.includes('Library'))).toBe(false)
+})
 
 test('the history holds a row per tool call, with its target, its state and its output', async ($, on) => {
   const { files } = world(on, 1_000_000, WORKED)

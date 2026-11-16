@@ -8,7 +8,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>Uselim</AssemblyName>
     <RootNamespace>Uselim</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Product>Uselim</Product>
     <Company>Simon Booban</Company>
     <Copyright>MIT</Copyright>
@@ -21,6 +21,14 @@
     <!-- the build's own output and the Mac-side checks stay out of the app -->
     <DefaultItemExcludes>$(DefaultItemExcludes);build.noindex/**;Tests/**</DefaultItemExcludes>
   </PropertyGroup>
+  <!-- the phone's web app the relay serves, and the Claude Code plugin with its one-entry marketplace, which setup
+       installs from the copy it writes beside the exe; both ride inside Uselim.exe -->
+  <ItemGroup>
+    <EmbeddedResource Include="../Resources/Web/*" LogicalName="Web/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../.claude-plugin/marketplace.json" LogicalName="Plugin/.claude-plugin/marketplace.json" />
+    <EmbeddedResource Include="../mod/.claude-plugin/plugin.json" LogicalName="Plugin/mod/.claude-plugin/plugin.json" />
+    <EmbeddedResource Include="../mod/hooks/*" LogicalName="Plugin/mod/hooks/%(Filename)%(Extension)" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
