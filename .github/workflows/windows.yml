@@ -1,0 +1,85 @@
+# Uselim for Windows: builds Uselim.exe from this repository on GitHub's Windows runner, runs the core's checks, and,
+# when asked for a release, has SignPath sign the exe (each signing waits for a maintainer's approval in SignPath),
+# then publishes Uselim-<version>-windows.zip and its .sha256 as the release windows-v<version>. Windows releases stay
+# off "latest", which stays the Mac's.
+name: Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a release after the build
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Core checks
+        run: dotnet run --project windows/Tests/Tests.csproj -c Release
+
+      - name: Build
+        run: dotnet build windows/Uselim.csproj -c Release -nologo
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = ([xml](Get-Content windows/Uselim.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Keep the unsigned exe
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Uselim-${{ steps.version.outputs.version }}-unsigned
+          path: windows/build.noindex/bin/Uselim/Release/Uselim.exe
+          if-no-files-found: error
+
+      - name: Sign through SignPath
+        if: inputs.release && env.HAS_SIGNPATH == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: uselim
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Zip
+        if: inputs.release
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force out | Out-Null
+          $exe = if (Test-Path signed/Uselim.exe) { "signed/Uselim.exe" } else { "windows/build.noindex/bin/Uselim/Release/Uselim.exe" }
+          Copy-Item $exe out/Uselim.exe
+          Compress-Archive -Path out/Uselim.exe -DestinationPath "out/Uselim-$v-windows.zip"
+          $hash = (Get-FileHash "out/Uselim-$v-windows.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  Uselim-$v-windows.zip" | Set-Content -NoNewline -Encoding ascii "out/Uselim-$v-windows.zip.sha256"
+
+      - name: Release
+        if: inputs.release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          gh release create "windows-v$v" "out/Uselim-$v-windows.zip" "out/Uselim-$v-windows.zip.sha256" `
+            --title "Uselim for Windows $v" --latest=false --target "${{ github.sha }}" `
+            --notes "Uselim for Windows $v. Download the zip, open Uselim.exe, and choose OK to set it up. Code signing policy: see the README."

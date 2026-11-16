@@ -1,7 +1,7 @@
 # Uselim
 
-Claude's usage limits in the Mac's menu bar, and the Claude Code chats open in VS Code, followed and answered from an
-iPhone.
+Claude's usage limits in the Mac's menu bar and on the Windows taskbar, and the Claude Code chats open in VS Code,
+followed and answered from an iPhone.
 
 The full guide, with pictures: https://simonbooban.com/resources/how-to-use-uselim
 
@@ -101,6 +101,50 @@ Each ask comes once: what it serves, and what carries on when you decline it.
 Choose **Remove Uselim…** in its menu, or run `/Applications/Uselim.app/Contents/MacOS/Uselim --remove`. Either one
 takes the hooks and status line out of Claude Code's settings (a backup kept), removes the plugin and Open at login,
 and moves the app to the Trash.
+
+## Windows
+
+Uselim for Windows carries the limits and the waiting chats; the phone follows in a later version.
+
+- **On the taskbar.** The same two lines as the Mac's menu bar, beside the notification area: the session's share and
+  its time left above, the week below, orange from 60% and red from 80%, an orange dot while a chat waits on an
+  answer. A click opens the panel: each limit with its reset, the waiting chats, Open at login, Show on the taskbar,
+  Remove Uselim. The tray keeps an asterisk icon with the same menu.
+- **Notices** at 60, 80 and 100%, when a limit that warned resets, and when a chat stops to ask you something.
+
+**Install:** download `Uselim-<version>-windows.zip` from a `windows-v` release, open `Uselim.exe`, and choose OK in
+Set up Uselim?. It needs Windows 10 or 11 and Claude Code, signed in. Windows 11 places a new tray icon behind the
+arrow, so the first run opens Settings › Taskbar › Other system tray icons, where one switch pins Uselim.
+
+**What it changes on the PC:**
+
+- `%LOCALAPPDATA%\Programs\Uselim\Uselim.exe`, the app, in your own folders, so it asks for zero administrator rights.
+- Claude Code's settings (`%USERPROFILE%\.claude\settings.json`): five hooks and, when that slot is free, the status
+  line. The file as it stood is copied to `%LOCALAPPDATA%\Uselim\backups` before each change.
+- Open at login, as Uselim's entry under Windows' Run list for your account.
+- The Claude Code login in `%USERPROFILE%\.claude\.credentials.json`, read to ask Anthropic for the usage figures.
+
+**Remove:** Remove Uselim… in the panel, or `%LOCALAPPDATA%\Programs\Uselim\Uselim.exe --remove`. Either one takes
+the hooks and status line out of Claude Code's settings (a backup kept), ends Open at login and deletes the app.
+
+**Build from source:** `windows/build.sh` builds `Uselim.exe` on a Mac with the .NET SDK (`./build.sh test` runs the
+core's checks first); the Windows workflow in `.github/workflows/windows.yml` builds, checks and signs releases on
+GitHub's Windows runner.
+
+## Code signing policy
+
+Free code signing on Windows provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [booban1](https://github.com/booban1)
+- Approvers: [booban1](https://github.com/booban1)
+
+Every Windows release is built from this repository by its GitHub workflow, and each signing waits for an approver's
+yes in SignPath.
+
+**Privacy:** Uselim for Windows connects to two places. `api.anthropic.com`, with the Claude Code login, for the usage figures
+Claude's own usage panel shows; and GitHub (`api.github.com`, `github.com`), for Uselim's own updates. Everything
+else stays on the computer.
 
 ## Build from source
 

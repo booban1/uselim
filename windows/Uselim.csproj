@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Uselim for Windows: one Uselim.exe on .NET Framework 4.8, which every Windows 10 and 11 carries, so the exe
+       stays small and asks for zero runtime install. Builds on the Mac through the framework's reference assemblies. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Uselim</AssemblyName>
+    <RootNamespace>Uselim</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>Uselim</Product>
+    <Company>Simon Booban</Company>
+    <Copyright>MIT</Copyright>
+    <ApplicationIcon>Uselim.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <!-- the build's own output and the Mac-side checks stay out of the app -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);build.noindex/**;Tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+</Project>
