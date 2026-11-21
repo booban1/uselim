@@ -9,7 +9,9 @@ namespace Uselim
 {
     // Pair a phone, the Mac's PairWindow on Windows: the relay's address with fresh pairing digits in its fragment as a
     // QR code, the six digits in large type for typing (two groups of three) with Copy beside them and how long they
-    // still pair, the phone's steps for an iPhone and for Android, and the phones paired so far, each with Remove. The
+    // still pair, the address as text to select or copy as a link that pairs on opening (for an Android phone whose
+    // camera leaves QR codes to Google Lens), the phone's steps for an iPhone and for Android, and the phones paired so
+    // far, each with Remove. The
     // digits pair one phone within ten minutes while the window stays open; once a phone pairs, or the minutes run out,
     // fresh digits take their place. Closing the window ends the digits on show.
 
@@ -23,6 +25,7 @@ namespace Uselim
         private readonly LinkLabel copy = new LinkLabel { AutoSize = true, Text = "Copy" };
         private readonly Label valid = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
         private readonly FlowLayoutPanel phonesBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
+        private readonly LinkLabel copyLink = new LinkLabel { AutoSize = true, Text = "Copy link" };
         private readonly Timer tick = new Timer { Interval = 1000 };
         private string code = "";
         private int ticks;
@@ -45,7 +48,7 @@ namespace Uselim
             var width = LogicalToDeviceUnits(300);
             picture.Size = new Size(LogicalToDeviceUnits(220), LogicalToDeviceUnits(220));
             picture.AccessibleName = "QR code";
-            copy.LinkClicked += (o, e) => CopyCode();
+            copy.LinkClicked += (o, e) => CopyText(code, copy, "Copy");
             copy.AccessibleName = "Copy the code";
 
             var codeRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.None };
@@ -56,19 +59,31 @@ namespace Uselim
             var steps = new Label
             {
                 AutoSize = true, MaximumSize = new Size(width, 0),
-                Text = "On the phone, install Tailscale and sign in with the same account. Scan this code with the Camera to open "
-                    + "Uselim: on an iPhone in Safari, then choose Share and Add to Home Screen; on Android in Chrome, then ⋮ and "
-                    + "Add to Home screen. In the Uselim app, tap the scan icon in the code field and point it here, or type the "
-                    + "six digits.",
+                Text = "On the phone, install Tailscale and sign in with the same account. Scan this code with the Camera, or with "
+                    + "Google Lens on Android, and open the link it finds: on an iPhone in Safari, then choose Share and Add to Home "
+                    + "Screen; on Android in Chrome, then ⋮ and Add to Home screen, then Install. The address above opens Uselim "
+                    + "too: type it into the browser, or send it to the phone with Copy link. In the Uselim app, type the six "
+                    + "digits, or tap the scan icon in the code field and point it here.",
             };
-            var addressLabel = new Label { AutoSize = true, Text = address, ForeColor = SystemColors.GrayText, Font = new Font(Font.FontFamily, 7.5f) };
+            // the address as text that selects and copies, beside a Copy link that carries the digits too
+            var addressBox = new TextBox
+            {
+                Text = address, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = SystemColors.Control,
+                Width = LogicalToDeviceUnits(230), TabStop = false, AccessibleName = "Uselim's address",
+            };
+            copyLink.LinkClicked += (o, e) => CopyText(address + "/#pair=" + code, copyLink, "Copy link");
+            copyLink.AccessibleName = "Copy the pairing link";
+            var addressRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            addressBox.Margin = new Padding(0, LogicalToDeviceUnits(3), LogicalToDeviceUnits(8), 0);
+            addressRow.Controls.Add(addressBox);
+            addressRow.Controls.Add(copyLink);
 
             var stack = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false,
                 Padding = new Padding(LogicalToDeviceUnits(30), LogicalToDeviceUnits(24), LogicalToDeviceUnits(30), LogicalToDeviceUnits(24)),
             };
-            foreach (var control in new Control[] { picture, codeRow, valid, steps, phonesBox, addressLabel })
+            foreach (var control in new Control[] { picture, codeRow, valid, addressRow, steps, phonesBox })
             {
                 control.Anchor = AnchorStyles.None;
                 control.Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(control == codeRow ? 4 : 14));
@@ -193,19 +208,19 @@ namespace Uselim
             return Day(at);
         }
 
-        // the code on this PC's clipboard, kept out of Windows' clipboard history and its cloud sync, and off the
-        // clipboard after a minute unless something else took its place
-        private void CopyCode()
+        // the digits, or the link carrying them, on this PC's clipboard, kept out of Windows' clipboard history and its
+        // cloud sync, and off the clipboard after a minute unless something else took its place
+        private void CopyText(string text, LinkLabel button, string word)
         {
             try
             {
                 var data = new DataObject();
-                data.SetText(code);
+                data.SetText(text);
                 var zero = new MemoryStream(BitConverter.GetBytes(0));
                 data.SetData("CanIncludeInClipboardHistory", zero);
                 data.SetData("CanUploadToCloudClipboard", new MemoryStream(BitConverter.GetBytes(0)));
                 Clipboard.SetDataObject(data, true);
-                var copied = code;
+                var copied = text;
                 var clear = new Timer { Interval = 60_000 };
                 clear.Tick += (o, e) =>
                 {
@@ -214,13 +229,13 @@ namespace Uselim
                     try { if (Clipboard.ContainsText() && Clipboard.GetText() == copied) Clipboard.Clear(); } catch (Exception) { }
                 };
                 clear.Start();
-                copy.Text = "Copied";
+                button.Text = "Copied";
                 var back = new Timer { Interval = 1500 };
                 back.Tick += (o, e) =>
                 {
                     back.Stop();
                     back.Dispose();
-                    if (!copy.IsDisposed) copy.Text = "Copy";
+                    if (!button.IsDisposed) button.Text = word;
                 };
                 back.Start();
             }

@@ -1,7 +1,7 @@
 # Uselim
 
-Claude's usage limits in the Mac's menu bar and on the Windows taskbar, and the Claude Code chats open in VS Code,
-followed and answered from a phone, iPhone or Android.
+Claude's usage limits in the Mac's menu bar, on the Windows taskbar and in Linux's tray, and the Claude Code chats
+open in VS Code, followed and answered from a phone, iPhone or Android.
 
 The full guide, with pictures: https://simonbooban.com/resources/how-to-use-uselim
 
@@ -108,7 +108,8 @@ and moves the app to the Trash.
 
 Uselim for Windows carries the limits, the waiting chats and the phone, iPhone or Android.
 
-- **On the taskbar.** The same two lines as the Mac's menu bar, beside the notification area: the session's share and
+- **On the taskbar.** The same two lines as the Mac's menu bar, left of the notification area and anything Windows
+  docks beside it, such as the weather: the session's share and
   its time left above, the week below, orange from 60% and red from 80%, an orange dot while a chat waits on an
   answer. A click opens the panel: each limit with its reset, the waiting chats, Open at login, Show on the taskbar,
   Remove Uselim. The tray keeps an asterisk icon with the same menu.
@@ -129,15 +130,40 @@ arrow, so the first run opens Settings › Taskbar › Other system tray icons, 
 - Claude Code's plugin `uselim`, installed from the copy Uselim writes beside its exe; it carries the phone's messages
   into each chat.
 - Open at login, as Uselim's entry under Windows' Run list for your account.
+- An entry in Settings › Apps, under your own account, with Uselim's version and its Uninstall.
 - The Claude Code login in `%USERPROFILE%\.claude\.credentials.json`, read to ask Anthropic for the usage figures.
 
-**Remove:** Remove Uselim… in the panel, or `%LOCALAPPDATA%\Programs\Uselim\Uselim.exe --remove`. Either one takes
-the hooks and status line out of Claude Code's settings (a backup kept), removes the plugin, ends Open at login and
-deletes the app.
+**Remove:** Remove Uselim… in the panel, Uninstall in Settings › Apps, or
+`%LOCALAPPDATA%\Programs\Uselim\Uselim.exe --remove`. Each one takes the hooks and status line out of Claude Code's
+settings (a backup kept), removes the plugin, ends Open at login, takes Uselim out of Settings › Apps and deletes the
+app.
 
 **Build from source:** `windows/build.sh` builds `Uselim.exe` on a Mac with the .NET SDK (`./build.sh test` runs the
 core's checks first); the Windows workflow in `.github/workflows/windows.yml` builds, checks and signs releases on
 GitHub's Windows runner.
+
+## Linux
+
+Uselim for Linux carries the limits, the waiting chats and the phone, as on Windows.
+
+- **In the tray.** The asterisk in the limits' tone with "9% · 79%" beside it on Cinnamon, Linux Mint's desktop; on
+  other desktops the asterisk alone, the figures in its tooltip. A click opens the panel: each limit with its reset,
+  the waiting chats, Phone and Pair a phone…, Open at login, Remove Uselim.
+- **Notices** through the desktop's notifications at 60, 80 and 100%, and one per chat that stops to ask you
+  something, closed once the chat moves on.
+
+**Install:** download `Uselim-<version>-linux-x64.tar.gz`, or the `arm64` one, from a `linux-v` release, unpack it
+and run `./uselim`. It sets itself up in `~/.local/bin`, joins the app menu, opens at login and starts in the tray. It
+needs Claude Code, signed in, and a panel that shows tray icons: Cinnamon on Linux Mint, KDE Plasma, or Ubuntu's GNOME.
+
+**What it changes on the computer:** `~/.local/bin/uselim`; Claude Code's settings (`~/.claude/settings.json`), with
+the hooks and, when that slot is free, the status line, the file as it stood copied to `~/.local/share/Uselim/backups`
+first; Claude Code's plugin `uselim`; the menu entry and its icon under `~/.local/share`; and Open at login as
+`~/.config/autostart/uselim.desktop`.
+
+**Remove:** Remove Uselim… in the panel, or `uselim --remove`, which takes each of those back.
+
+**Privacy:** the same as on Windows, with Uselim's updates from its `linux-v` releases.
 
 ## Code signing policy
 

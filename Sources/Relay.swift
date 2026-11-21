@@ -60,6 +60,9 @@ final class Relay {
     private var nextWaiter = 0
     private var sent = 0
     private var replySeen: [String: Double] = [:]
+    // each chat's newest words in its history, mid-turn included, kept by the file's change time so the phone's polls
+    // reread a history only after the mod wrote it
+    private var latestWords: [String: (changed: Date, at: Double, text: String)] = [:]
     private var askSeen: Set<String> = []
     private var swept = Date.distantPast
     private var timer: Timer?
@@ -812,6 +815,9 @@ final class Relay {
         return .json(["ok": true, "notify": notify])
     }
 
+    // a chat by the name VS Code shows for it, for the Mac's notices
+    func chatName(_ session: String) -> String? { titles[session] }
+
     // a chat by the name VS Code shows for it, else its folder
     private func name(_ session: String, _ chat: [String: Any]?) -> String {
         titles[session] ?? chat?["project"] as? String ?? "Claude"
@@ -1051,6 +1057,10 @@ final class Relay {
                 row["reply"] = ["at": reply["at"] ?? 0, "text": preview(reply["text"] as? String ?? "", 160)]
                 latest = reply["at"] as? Double ?? 0
             }
+            // mid-turn, the row reads the chat's newest words, the tools left out, as the history shows them
+            if let words = newestWords(session), words.at > latest, !words.text.isEmpty {
+                row["reply"] = ["at": words.at, "text": preview(words.text, 160)]
+            }
             if let ask = readJSON(relayDir + "/asks/\(session).json"), ask["id"] != nil {
                 row["ask"] = ask
                 latest = max(latest, ask["at"] as? Double ?? 0)
@@ -1073,6 +1083,18 @@ final class Relay {
         return ["now": millis(Date()), "away": away, "limits": rows, "limitsAt": at.map { millis($0) as Any } ?? NSNull(),
                 "chats": chats, "recent": recent, "push": ["key": push.publicKey, "count": push.count], "notify": notify,
                 "unread": unread]
+    }
+
+    private func newestWords(_ session: String) -> (at: Double, text: String)? {
+        let path = relayDir + "/history/\(session).json"
+        guard let changed = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return nil }
+        if let kept = latestWords[session], kept.changed == changed { return (kept.at, kept.text) }
+        guard let history = readJSON(path) else { return nil }
+        let at = history["at"] as? Double ?? 0
+        let messages = history["messages"] as? [[String: Any]] ?? []
+        let text = messages.last { $0["role"] as? String == "assistant" && !($0["text"] as? String ?? "").isEmpty }?["text"] as? String ?? ""
+        latestWords[session] = (changed, at, text)
+        return (at, text)
     }
 
     private func chatJSON(_ session: String) -> [String: Any]? {

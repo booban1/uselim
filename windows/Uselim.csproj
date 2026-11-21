@@ -8,7 +8,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>Uselim</AssemblyName>
     <RootNamespace>Uselim</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Product>Uselim</Product>
     <Company>Simon Booban</Company>
     <Copyright>MIT</Copyright>

@@ -921,6 +921,9 @@ namespace Uselim
             return Response.Json(new JObject { ["ok"] = true, ["notify"] = NotifyJson() });
         }
 
+        // a chat by the name VS Code shows for it, for the app's own notices; null while none is known (on the loop)
+        public string TitleOf(string session) => titles.TryGetValue(session, out var title) ? title : null;
+
         // a chat by the name VS Code shows for it, else its folder
         private string Name(string session, JObject chat) =>
             titles.TryGetValue(session, out var title) ? title : chat?.Str("project") ?? "Claude";

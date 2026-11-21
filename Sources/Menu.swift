@@ -337,12 +337,18 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: the chats waiting on an answer
 
     func reloadWaiting(notify: Bool) {
+        let before = seen
         waiting = readWaiting()
         if notify {
+            // each chat by the name VS Code shows for it, one notice per chat, replaced as its ask changes
             for w in waiting where seen[w.session] != w.kind {
-                alerts.send("\(w.project) \(w.kind == .question ? "asks" : "needs a permission")", w.detail)
+                let name = relay.chatName(w.session) ?? w.project
+                alerts.send("\(name) \(w.kind == .question ? "asks" : "needs a permission")", w.detail, id: "wait-\(w.session)")
             }
         }
+        // a chat that moved on (answered, allowed, a prompt typed, closed) takes its notice out of Notification Center
+        let still = Set(waiting.map(\.session))
+        for session in before.keys where !still.contains(session) { alerts.withdraw("wait-\(session)") }
         seen = Dictionary(waiting.map { ($0.session, $0.kind) }, uniquingKeysWith: { a, _ in a })
         draw()
         fillWaiting()

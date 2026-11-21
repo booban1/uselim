@@ -107,7 +107,8 @@ namespace Uselim
             Draw();
             icon.Visible = true;
             if (OnTaskbar) readout.Start();
-            if (this.demo.Length == 0 && Install.IsInstalledCopy) Task.Run(() => Install.RefreshHooks());
+            // after an update, and for copies set up before the Apps entry existed: the hooks and the entry's version current
+            if (this.demo.Length == 0 && Install.IsInstalledCopy) Task.Run(() => { Install.RefreshHooks(); Install.WriteAppsEntry(); });
             if (this.demo.Length == 0 && IsPhoneOn()) StartPhone();
 
             Watch(Paths.WaitingDir, name => true, () => waitingChanged = true);

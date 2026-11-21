@@ -64,7 +64,10 @@ func runHook() {
         write(.question, detail.isEmpty ? "A question" : detail)
     case "Notification":
         guard json["notification_type"] as? String == "permission_prompt" else { return }
-        write(.permission, json["message"] as? String ?? "A permission")
+        let message = json["message"] as? String ?? "A permission"
+        // a question's own dialog comes as a permission prompt too: the question's notice covers it
+        if message.contains("AskUserQuestion") { return }
+        write(.permission, message)
     default:
         // PostToolUse (the question got its answer, or the tool ran after its permission), UserPromptSubmit, SessionEnd
         try? FileManager.default.removeItem(atPath: file)

@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Uselim for Linux: the Windows app's core (windows/Core, free of Windows) with a Linux layer of its own: the tray
+       item with its label over D-Bus, the panel and Pair a phone in Avalonia, notices through the desktop's
+       notification service. One self-contained `uselim` file per processor, zero runtime install. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>uselim</AssemblyName>
+    <RootNamespace>Uselim</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>Uselim</Product>
+    <Company>Simon Booban</Company>
+    <Copyright>MIT</Copyright>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn>$(NoWarn);SYSLIB0014;CA1416</NoWarn>
+    <DefaultItemExcludes>$(DefaultItemExcludes);build.noindex/**;bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <!-- the publish: one file holding the runtime and Avalonia's native parts, unpacked on first start -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../windows/Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- the phone's web app the relay serves, and the Claude Code plugin setup installs, inside the file -->
+  <ItemGroup>
+    <EmbeddedResource Include="../Resources/Web/*" LogicalName="Web/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../.claude-plugin/marketplace.json" LogicalName="Plugin/.claude-plugin/marketplace.json" />
+    <EmbeddedResource Include="../mod/.claude-plugin/plugin.json" LogicalName="Plugin/mod/.claude-plugin/plugin.json" />
+    <EmbeddedResource Include="../mod/hooks/*" LogicalName="Plugin/mod/hooks/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.95.2" />
+  </ItemGroup>
+</Project>

@@ -69,6 +69,55 @@ namespace Uselim
             }
         }
 
+        // Settings › Apps: Uselim's entry under the person's own key, so Windows' installed-apps list and winget read its
+        // version and remove it through Uselim's own removal
+
+        private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Uselim";
+
+        public static bool WriteAppsEntry()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
+                {
+                    var exe = Paths.InstalledExe;
+                    var remove = "\"" + exe + "\" --remove";
+                    key.SetValue("DisplayName", "Uselim");
+                    key.SetValue("DisplayVersion", Usage.Version);
+                    key.SetValue("Publisher", "Simon Booban");
+                    key.SetValue("DisplayIcon", exe);
+                    key.SetValue("InstallLocation", Paths.InstallDir);
+                    key.SetValue("UninstallString", remove);
+                    key.SetValue("QuietUninstallString", remove);
+                    key.SetValue("URLInfoAbout", "https://github.com/booban1/uselim");
+                    key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                    key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                    if (File.Exists(exe)) key.SetValue("EstimatedSize", (int)Math.Max(1, new FileInfo(exe).Length / 1024), RegistryValueKind.DWord);
+                    if (key.GetValue("InstallDate") == null) key.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"));
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                Log.Note("apps entry: " + e.Message);
+                return false;
+            }
+        }
+
+        private static bool DeleteAppsEntry()
+        {
+            try
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Log.Note("apps entry: " + e.Message);
+                return false;
+            }
+        }
+
         // The running copy
 
         public static bool IsRunning
@@ -150,6 +199,7 @@ namespace Uselim
         private static int RunSetup()
         {
             CopySelf();
+            Step("apps", WriteAppsEntry(), "Settings › Apps");
             SettingsStep(true);
             var claude = ClaudeBinary();
             if (claude != null) PluginStep(claude);
@@ -164,7 +214,9 @@ namespace Uselim
             {
                 try
                 {
-                    Process.Start(new ProcessStartInfo(Paths.InstalledExe) { UseShellExecute = false, WorkingDirectory = Paths.InstallDir });
+                    // started through the shell, so the app inherits zero handles: a caller reading setup's output (a
+                    // script's pipe, Culpmit's Claude limits switch) meets its end once setup finishes
+                    Process.Start(new ProcessStartInfo(Paths.InstalledExe) { UseShellExecute = true, WorkingDirectory = Paths.InstallDir });
                     Step("launch", true, "started");
                 }
                 catch (Exception e)
@@ -191,8 +243,9 @@ namespace Uselim
                 + "• adds six hooks to Claude Code's settings, plus a status line when that slot is free, so Uselim "
                 + "hears the limits and the chats waiting on you (a backup of the settings is kept)\n"
                 + "• installs Uselim's Claude Code plugin, which carries your phone's messages into each chat\n"
-                + "• opens Uselim at login\n\n"
-                + "Remove Uselim… in its panel takes each change back.";
+                + "• opens Uselim at login\n"
+                + "• lists Uselim in Settings › Apps\n\n"
+                + "Remove Uselim… in its panel, or Uninstall in Settings › Apps, takes each change back.";
             var answer = System.Windows.Forms.MessageBox.Show(ask, "Set up Uselim?", System.Windows.Forms.MessageBoxButtons.OKCancel,
                 System.Windows.Forms.MessageBoxIcon.None, System.Windows.Forms.MessageBoxDefaultButton.Button1);
             if (answer != System.Windows.Forms.DialogResult.OK) return 0;
@@ -237,6 +290,7 @@ namespace Uselim
             OpenAtLogin = false;
             Step("login", !OpenAtLogin, OpenAtLogin ? "the Run entry stayed on" : "off");
             if (quittingOthers) Step("quit", QuitRunning());
+            Step("apps", DeleteAppsEntry(), "out of Settings › Apps");
             if (File.Exists(Paths.InstalledExe)) DeleteFilesAfterExit();
         }
 

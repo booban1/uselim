@@ -265,8 +265,9 @@ func qrImage(_ text: String, side: CGFloat) -> NSImage? {
 }
 
 // Pair a phone: the relay's address with fresh pairing digits in its fragment as a QR code, the six digits in large
-// type for typing (in two groups of three) with a copy button beside them and how long they still pair, the iPhone's
-// steps, and the phones paired so far, each with Remove. The digits pair one phone within ten minutes while the window
+// type for typing (in two groups of three) with a copy button beside them and how long they still pair, the address as
+// text with Copy link, whose link carries the digits (for an Android phone whose camera leaves QR codes to Google Lens),
+// the phone's steps, and the phones paired so far, each with Remove. The digits pair one phone within ten minutes while the window
 // stays open; once a phone pairs, or the minutes run out, fresh digits take their place.
 final class PairWindow: NSWindowController, NSWindowDelegate {
     private var relay: Relay?
@@ -275,6 +276,7 @@ final class PairWindow: NSWindowController, NSWindowDelegate {
     private let picture = NSImageView()
     private let codeLabel = NSTextField(labelWithString: "")
     private let copyButton = NSButton()
+    private let linkButton = NSButton(title: "Copy link", target: nil, action: nil)
     private let validLabel = NSTextField(labelWithString: "")
     private let phonesBox = NSStackView()
     private let stack = NSStackView()
@@ -311,17 +313,32 @@ final class PairWindow: NSWindowController, NSWindowDelegate {
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         let steps = NSTextField(wrappingLabelWithString:
-            "On the phone, install Tailscale and sign in with the same account. Scan this code with the Camera to open "
-            + "Uselim: on an iPhone in Safari, then choose Share and Add to Home Screen; on Android in Chrome, then ⋮ and "
-            + "Add to Home screen. In the Uselim app, tap the scan icon in the code field and point it here, or type the "
-            + "six digits.")
+            "On the phone, install Tailscale and sign in with the same account. Scan this code with the Camera, or with "
+            + "Google Lens on Android, and open the link it finds: on an iPhone in Safari, then choose Share and Add to Home "
+            + "Screen; on Android in Chrome, then ⋮ and Add to Home screen, then Install. The address above opens Uselim "
+            + "too: type it into the browser, or send it to the phone with Copy link. In the Uselim app, type the six "
+            + "digits, or tap the scan icon in the code field and point it here.")
         steps.font = .systemFont(ofSize: 12)
         steps.preferredMaxLayoutWidth = 300
 
+        // the address as text that selects, beside Copy link, whose link carries the digits too
         let addressLabel = NSTextField(labelWithString: address)
-        addressLabel.font = .systemFont(ofSize: 10)
+        addressLabel.font = .systemFont(ofSize: 12)
         addressLabel.textColor = .secondaryLabelColor
         addressLabel.isSelectable = true
+        addressLabel.lineBreakMode = .byTruncatingMiddle
+        addressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        linkButton.isBordered = false
+        linkButton.contentTintColor = .linkColor
+        linkButton.font = .systemFont(ofSize: 12)
+        linkButton.target = self
+        linkButton.action = #selector(copyLink)
+        linkButton.setAccessibilityLabel("Copy the pairing link")
+        let addressRow = NSStackView(views: [addressLabel, linkButton])
+        addressRow.orientation = .horizontal
+        addressRow.spacing = 8
+        addressRow.translatesAutoresizingMaskIntoConstraints = false
+        addressRow.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
 
         validLabel.font = .systemFont(ofSize: 12)
         validLabel.textColor = .secondaryLabelColor
@@ -329,7 +346,7 @@ final class PairWindow: NSWindowController, NSWindowDelegate {
         phonesBox.alignment = .leading
         phonesBox.spacing = 8
 
-        for view in [picture, codeLabel, validLabel, steps, phonesBox, addressLabel] { stack.addArrangedSubview(view) }
+        for view in [picture, codeLabel, validLabel, addressRow, steps, phonesBox] { stack.addArrangedSubview(view) }
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
@@ -466,17 +483,29 @@ final class PairWindow: NSWindowController, NSWindowDelegate {
         relay?.onPhones = nil
     }
 
-    // the code stays on this Mac, kept off Universal Clipboard and marked concealed for clipboard managers, and it
-    // leaves the clipboard after a minute unless something else took its place
-    @objc private func copyCode() {
+    // the code, or the link carrying it, stays on this Mac, kept off Universal Clipboard and marked concealed for
+    // clipboard managers, and it leaves the clipboard after a minute unless something else took its place
+    private func conceal(_ text: String) {
         let board = NSPasteboard.general
         board.prepareForNewContents(with: .currentHostOnly)
-        board.setString(code, forType: .string)
+        board.setString(text, forType: .string)
         board.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
         let copied = board.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
             if board.changeCount == copied { board.clearContents() }
         }
+    }
+
+    @objc private func copyLink() {
+        conceal("\(address)/#pair=\(code)")
+        linkButton.title = "Copied"
+        NSAccessibility.post(element: linkButton, notification: .announcementRequested,
+                             userInfo: [.announcement: "Copied", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.linkButton.title = "Copy link" }
+    }
+
+    @objc private func copyCode() {
+        conceal(code)
         copyButton.imagePosition = .noImage
         copyButton.title = "Copied"
         NSAccessibility.post(element: copyButton, notification: .announcementRequested,

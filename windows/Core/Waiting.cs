@@ -90,7 +90,10 @@ namespace Uselim
                     break;
                 case "Notification":
                     if (json.Str("notification_type") != "permission_prompt") return;
-                    Write("permission", json.Str("message") ?? "A permission");
+                    var message = json.Str("message") ?? "A permission";
+                    // a question's own dialog comes as a permission prompt too: the question's notice covers it
+                    if (message.Contains("AskUserQuestion")) return;
+                    Write("permission", message);
                     break;
                 default:
                     // PostToolUse (the question got its answer, or the tool ran after its permission), UserPromptSubmit, SessionEnd

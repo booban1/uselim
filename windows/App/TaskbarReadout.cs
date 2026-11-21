@@ -10,7 +10,8 @@ using System.Windows.Forms;
 namespace Uselim
 {
     // The readout on the taskbar, the Mac's menu bar readout carried over: the asterisk and the two lines, in a
-    // small window attached to the taskbar just left of the notification area, the way TrafficMonitor shows its speeds.
+    // small window attached to the taskbar just left of its right-hand group (the notification area with anything Windows
+    // docks beside it, such as News and interests), the way TrafficMonitor shows its speeds.
     // A child of the taskbar's own window, so it rides along as the taskbar hides, moves or changes size; a layered
     // window drawn with real transparency, so it sits on any taskbar colour. A click opens the panel, a right click the
     // tray's menu. On Windows 10 the task buttons' strip gives up the room it needs, and gets it back on the way out.
@@ -123,7 +124,8 @@ namespace Uselim
             taskbar = IntPtr.Zero;
         }
 
-        // the place left of the notification area, null where the taskbar stands upright or its parts are out of reach
+        // the place left of the taskbar's right-hand group, null where the taskbar stands upright or its parts are out of
+        // reach
         private Rectangle? Place(int width)
         {
             if (!GetWindowRect(taskbar, out var tb)) return null;
@@ -131,10 +133,27 @@ namespace Uselim
             var notify = FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
             if (notify == IntPtr.Zero || !GetWindowRect(notify, out var nr) || nr.Right - nr.Left <= 0) return null;
             var s = Scale;
-            var right = nr.Left - (int)(4 * s);
+            var right = RightGroupLeft(nr) - (int)(4 * s);
             var left = right - width;
             if (!IsWindows11) MakeRoom(tb, left);
             return new Rectangle(left, tb.Top, width, tb.Bottom - tb.Top);
+        }
+
+        // The left edge of the right-hand group: the notification area, or further left any visible part of the taskbar
+        // Windows docks between the task buttons and it (News and interests on Windows 10, a toolbar a person added), so
+        // the readout sits beside them, over none of them
+        private int RightGroupLeft(RECT notify)
+        {
+            if (rebar == IntPtr.Zero) rebar = FindWindowEx(taskbar, IntPtr.Zero, "ReBarWindow32", null);
+            var start = rebarMoved ? rebarFrom.Left : rebar != IntPtr.Zero && GetWindowRect(rebar, out var rr) ? rr.Left : int.MinValue;
+            var left = notify.Left;
+            for (var child = GetWindow(taskbar, GW_CHILD); child != IntPtr.Zero; child = GetWindow(child, GW_HWNDNEXT))
+            {
+                if (child == Handle || child == rebar || !IsWindowVisible(child) || !GetWindowRect(child, out var cr)) continue;
+                if (cr.Right - cr.Left <= 0 || cr.Left <= start || cr.Right > notify.Left + 1) continue;
+                if (cr.Left < left) left = cr.Left;
+            }
+            return left;
         }
 
         // Windows 10: the task buttons' strip ends where the readout starts
@@ -319,6 +338,7 @@ namespace Uselim
         private const int SW_HIDE = 0, ULW_ALPHA = 2, MA_NOACTIVATE = 3;
         private const int WM_MOUSEACTIVATE = 0x21, WM_LBUTTONUP = 0x202, WM_RBUTTONUP = 0x205;
         private const uint SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
+        private const uint GW_HWNDNEXT = 2, GW_CHILD = 5;
         private static readonly IntPtr HWND_TOP = IntPtr.Zero;
 
         [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
@@ -329,6 +349,7 @@ namespace Uselim
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string cls, string name);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string name);
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rect);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint relation);
         [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int how);

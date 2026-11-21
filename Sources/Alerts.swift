@@ -40,12 +40,13 @@ final class Alerts {
         }
     }
 
-    func send(_ title: String, _ body: String?) {
+    // id: a notice that replaces the one before it under the same id, and leaves with withdraw
+    func send(_ title: String, _ body: String?, id: String = UUID().uuidString) {
         let content = UNMutableNotificationContent()
         content.title = title
         if let body { content.body = body }
         content.sound = .default
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { allowed, error in
             guard allowed else {
@@ -61,6 +62,13 @@ final class Alerts {
             center.add(request)
         }
         note("notice: \(title)\(body.map { ", \($0)" } ?? "")")
+    }
+}
+
+extension Alerts {
+    // a notice out of Notification Center once its moment passed
+    func withdraw(_ id: String) {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
     }
 }
 

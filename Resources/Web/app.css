@@ -120,6 +120,28 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .bar.loading { background: var(--orange); }
 .bar.offline { background: var(--sub); }
 
+/* Offline with the kept copy's age, under the open screen's header: in the page's flow, clear of the glass iOS lays
+   along the screen's top edge */
+.offline-line {
+  flex: none;
+  align-self: center;
+  width: fit-content;
+  margin: 8px auto 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--sub);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+/* what needs the Mac rests while it is out of reach; reading, scrolling, pictures seen before and folding stay */
+body.offline :is(#newChat, #send, .attach, #modelPill, .swipe-actions .act, .clear, .pill.stop, #ask button:not(.ask-head), #mainSwitch, #kinds input, #pushTest) {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .view {
   min-height: 100vh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);

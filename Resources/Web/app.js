@@ -264,10 +264,13 @@ const imageKey = key =>
     : `/api/image?session=${encodeURIComponent(session)}&key=${encodeURIComponent(key)}`
 const imageFile = name => `/api/image?session=${encodeURIComponent(session)}&file=${encodeURIComponent(name)}`
 
+// a read the Mac leaves unanswered this long counts as out of reach, so the kept copy shows in its place
+const READ_WAIT = 10000
+
 async function call(path, body) {
   const init =
     body === undefined
-      ? { headers: headers() }
+      ? { headers: headers(), signal: AbortSignal.timeout(READ_WAIT) }
       : { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   const response = await fetch(path, init)
   // a key the Mac turned down: the phone's own (removed on the Mac), or digits spent or past their days
@@ -444,6 +447,107 @@ function button(label, className, onClick) {
 // the loading bar: orange while loading, grey while the Mac is out of reach
 const bar = mode => {
   byId('bar').className = `bar ${mode}`
+}
+
+// MARK: offline: the last lists and chats kept on the phone, shown under Offline while the Mac is out of reach; what
+// needs the Mac (sending, Stop, answers, files, New chat, renames, switches) rests until it answers again
+
+const KEPT = 'uselim-kept'
+let isOffline = false
+let reachedAt = 0 // the Mac's last answer on this visit
+let keptAt = 0 // the kept copy's age, while one shows
+
+async function keepCopy(name, value) {
+  try {
+    const cache = await caches.open(KEPT)
+    await cache.put(`/kept/${encodeURIComponent(name)}`, new Response(JSON.stringify({ at: Date.now(), value })))
+  } catch {
+    // a phone that keeps nothing shows the lists again once the Mac answers
+  }
+}
+
+async function keptCopy(name) {
+  try {
+    const cache = await caches.open(KEPT)
+    const response = await cache.match(`/kept/${encodeURIComponent(name)}`)
+    return response ? await response.json() : null
+  } catch {
+    return null
+  }
+}
+
+function showOffline(on) {
+  isOffline = on
+  document.body.classList.toggle('offline', on)
+  const at = keptAt || reachedAt
+  const time = at ? new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
+  const line = byId('offline')
+  line.textContent = time ? `Offline · Updated ${time}` : 'Offline'
+  line.hidden = !on
+  // under the open screen's header
+  const header = byId(view)?.querySelector('header')
+  if (on && header && header.nextElementSibling !== line) header.after(line)
+}
+
+// every chat on the list kept in the background while the Mac answers, so any of them opens offline: one per refresh,
+// a chat again once it moved on, at most once a minute
+const KEEP_AGAIN = 60000
+const keptChats = new Map() // session: { at, keptAt }
+let isKeeping = false
+
+async function keepNextChat() {
+  if (isKeeping || isOffline || !state) return
+  const now = Date.now()
+  const listed = [...(state.chats ?? []), ...(state.recent ?? [])]
+  const due = listed.find(c => {
+    const kept = keptChats.get(c.session)
+    const at = c.reply?.at ?? c.at ?? 0
+    return !kept || (kept.at !== at && now - kept.keptAt > KEEP_AGAIN)
+  })
+  if (!due) return
+  isKeeping = true
+  const at = due.reply?.at ?? due.at ?? 0
+  try {
+    const whole = await call(`/api/chat?session=${encodeURIComponent(due.session)}`)
+    await keepCopy(`chat:${due.session}`, whole)
+    keptChats.set(due.session, { at, keptAt: now })
+  } catch (error) {
+    // a chat the Mac knows nothing of rests; out of reach, the next refresh tries again
+    if (String(error.message).includes('404')) keptChats.set(due.session, { at, keptAt: now })
+  } finally {
+    isKeeping = false
+  }
+}
+
+// the view's kept copy, drawn when this visit holds nothing fresher
+async function showKept() {
+  if (view === 'notices') {
+    if (notices) return
+    const kept = await keptCopy('notices')
+    if (!kept) return
+    notices = kept.value
+    keptAt = kept.at
+    drawNotices()
+  } else if (session && session !== NEW) {
+    if (chat?.session === session) return
+    const kept = await keptCopy(`chat:${session}`)
+    if (!kept) return
+    chat = kept.value
+    earlier.cursor = null
+    keptAt = kept.at
+    drawChat()
+  } else if (!session) {
+    if (state) return
+    const kept = await keptCopy('state')
+    if (!kept) return
+    state = kept.value
+    keptAt = kept.at
+    if (view === 'settings') return
+    drawLimits()
+    drawBadge()
+    drawChats()
+    drawRecent()
+  }
 }
 
 // MARK: words for time
@@ -791,7 +895,10 @@ async function loadNotices() {
   const since = notices ? `?since=${notices.at}` : ''
   const got = await call(`/api/notices${since}`)
   if (got.same && notices) notices.now = got.now
-  else notices = got
+  else {
+    notices = got
+    keepCopy('notices', notices)
+  }
   drawNotices()
 }
 
@@ -2014,7 +2121,8 @@ byId('composer').addEventListener('submit', async event => {
   event.preventDefault()
   const words = text.value.trim()
   const files = picked.map(item => item.file)
-  if ((!words && files.length === 0) || !session || isOpening) return
+  // offline, the words stay in the field for when the Mac answers
+  if ((!words && files.length === 0) || !session || isOpening || isOffline) return
   let target = session
   sentCount += 1
   const entry = {
@@ -2242,12 +2350,15 @@ async function refresh() {
         fresh.historyAt = held.historyAt
       }
       chat = fresh
+      if (!fresh.historySame) keepCopy(`chat:${session}`, chat)
       drawChat()
       // a short window (a chat just compacted, or busy with tools) brings one earlier page along by itself
       const talk = (chat.history ?? []).filter(m => m.role === 'user' || m.role === 'assistant').length
       if (earlier.cursor === undefined && !earlier.isLoading && talk < 20) loadEarlier()
     } else {
       state = await call('/api/state')
+      keepCopy('state', state)
+      keepNextChat()
       if (view === 'settings') {
         await drawSettings()
       } else {
@@ -2258,11 +2369,19 @@ async function refresh() {
       }
     }
     isReached = true
+    reachedAt = Date.now()
+    keptAt = 0
+    if (isOffline) showOffline(false)
     bar('')
   } catch (error) {
     // a chat that closed sends the view back to the list
     if (session && String(error.message).includes('404')) location.hash = ''
-    else bar(isUnpaired ? '' : 'offline')
+    else if (isUnpaired) bar('')
+    else {
+      bar('offline')
+      await showKept()
+      showOffline(true)
+    }
   } finally {
     isBusy = false
     if (isAgain) {

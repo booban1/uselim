@@ -1,7 +1,8 @@
 import type { ApiContentBlock, EngineInterface, Register, SessionMessage, Timer, ToolUseSummary } from 'claude-code'
 
 // Uselim's phone relay inside a chat. The phone reaches the session through files Uselim keeps in the relay folder
-// (~/Library/Application Support/Uselim/relay on the Mac, %LOCALAPPDATA%\Uselim\relay on Windows), and through
+// (~/Library/Application Support/Uselim/relay on the Mac, %LOCALAPPDATA%\Uselim\relay on Windows,
+// ~/.local/share/Uselim/relay on Linux), and through
 // Uselim's local server, which holds a question or a permission ask open until the phone answers it:
 //   chats/<session>.json     the chat: folder, opening words, working or idle, the main loop's running tools,
 //                            its last sign of life, its model and effort, and when it last took a switch from the phone
@@ -647,10 +648,16 @@ async function waitFor(
 // loaded the mod mid-session (an install, then /reload-plugins)
 async function ensure($: EngineInterface, cwd?: string) {
   if (chat) return
-  // Uselim's folder: %LOCALAPPDATA%\Uselim\relay on Windows, ~/Library/Application Support/Uselim/relay on the Mac
+  // Uselim's folder: %LOCALAPPDATA%\Uselim\relay on Windows; on Linux $XDG_DATA_HOME/Uselim/relay, else
+  // ~/.local/share/Uselim/relay, where .NET keeps an app's local data; ~/Library/Application Support/Uselim/relay on the
+  // Mac. /proc/version, a file Linux alone carries, tells Linux from the Mac.
   const local = await $.env.get('LOCALAPPDATA')
   const home = await $.env.get('HOME')
+  const isLinux = !local && (await $.fs.read('/proc/version').then(() => true, () => false))
+  const xdg = isLinux ? await $.env.get('XDG_DATA_HOME') : undefined
   if (local) dir = `${local}/Uselim/relay`
+  else if (isLinux && xdg?.startsWith('/')) dir = `${xdg}/Uselim/relay`
+  else if (isLinux && home) dir = `${home}/.local/share/Uselim/relay`
   else if (home) dir = `${home}/Library/Application Support/Uselim/relay`
   else return
   const session = await $.session.id()
